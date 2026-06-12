@@ -1,0 +1,277 @@
+# ============================================================
+# FORGE Prompt Queue Template
+# ============================================================
+# Copy this file into your project folder as:
+#   projects/<your-project>/queue.yaml
+# and customize the prompts for your specific project.
+#
+# The orchestrator (forge.ps1) runs each prompt sequentially.
+# After every prompt it runs that prompt's gates in order.
+# A failed gate triggers the recovery agent and retries up to
+# max_retries. If retries are exhausted and on_fail is "halt",
+# the pipeline stops and writes state/<project>/halt-reason.md.
+#
+# Run with:  .\forge.ps1 -project <your-project>
+# ============================================================
+
+project: your-project-name
+github_repo: Reid64/your-repo-name
+supabase_project_ref: your-supabase-ref
+vercel_project_name: your-vercel-project
+domain: yourdomain.com
+
+# Governance files to load as context with every prompt.
+# Resolved relative to projects/<project>/. These get
+# prompt-cached (large cost savings after the first call).
+# CLAUDE.md from the FORGE root is always prepended automatically.
+governance:
+  - BLUEPRINT.md
+  - SCHEMA_REGISTRY.md
+  - BEHAVIORAL_CONTRACTS.md
+
+# Global settings
+settings:
+  max_retries_per_prompt: 3
+  build_model: claude-sonnet-4-6-20250514
+  review_model: claude-sonnet-4-6-20250514
+  report_model: claude-haiku-4-5-20251001
+  permission_mode: acceptEdits
+  allowed_tools: "*"
+  review_frequency: 5             # AI review every N prompts
+  governance_check_frequency: 10  # Six Laws check every N prompts
+
+# ============================================================
+# PROMPT QUEUE — executed top to bottom
+# ============================================================
+# Each prompt supports:
+#   id               unique identifier (used in logs/state)
+#   phase            scaffold | schema | build | integration | test | deploy
+#   description      one-line human summary
+#   prompt           the instruction text fed to claude -p
+#   expected_outputs files the prompt is expected to produce
+#   gates            list of gates to run after the prompt
+#                      - type: compile | build | lint | test | schema
+#                      - type: file_exists  (with a files: list)
+#   max_retries      override the global retry budget
+#   on_fail          halt | continue
+# ============================================================
+prompts:
+
+  # ----------------------------------------------------------
+  # PHASE 1: SCAFFOLD
+  # ----------------------------------------------------------
+  - id: scaffold-001
+    phase: scaffold
+    description: "Initialize project skeleton"
+    prompt: |
+      Read BLUEPRINT.md completely before doing anything.
+
+      Initialize a new Next.js 14 project with TypeScript strict mode.
+      Use pnpm as the package manager (never npm or yarn).
+
+      Create the following directory structure per the blueprint:
+      - src/app/ (App Router)
+      - src/components/
+      - src/lib/
+      - src/types/
+      - src/utils/
+      - public/
+
+      Install core dependencies:
+      pnpm add @supabase/supabase-js @supabase/ssr
+      pnpm add -D tailwindcss postcss autoprefixer
+
+      Configure tsconfig.json with strict: true.
+      Configure tailwind.config.ts.
+      Create a basic layout.tsx and page.tsx.
+
+      Create deploy.ps1 with the standard deploy sequence:
+      1. pnpm tsc --noEmit
+      2. pnpm run build
+      3. vercel --prod
+      4. npx playwright test
+      5. git add/commit/push
+    expected_outputs:
+      - package.json
+      - tsconfig.json
+      - src/app/layout.tsx
+      - src/app/page.tsx
+      - tailwind.config.ts
+      - deploy.ps1
+    gates:
+      - type: file_exists
+        files:
+          - package.json
+          - tsconfig.json
+          - src/app/layout.tsx
+      - type: compile
+    max_retries: 3
+    on_fail: halt
+
+  - id: scaffold-002
+    phase: scaffold
+    description: "Set up Supabase client and environment"
+    prompt: |
+      Read BLUEPRINT.md for database configuration.
+
+      Create src/lib/supabase.ts with:
+      - Browser client (createBrowserClient from @supabase/ssr)
+      - Server client (createServerClient from @supabase/ssr)
+
+      Create .env.local.example with all required environment variables:
+      - NEXT_PUBLIC_SUPABASE_URL
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY
+      - SUPABASE_SERVICE_ROLE_KEY
+
+      DO NOT hardcode any keys. Read from environment variables only.
+    expected_outputs:
+      - src/lib/supabase.ts
+      - .env.local.example
+    gates:
+      - type: compile
+      - type: file_exists
+        files:
+          - src/lib/supabase.ts
+    max_retries: 3
+    on_fail: halt
+
+  # ----------------------------------------------------------
+  # PHASE 2: SCHEMA
+  # ----------------------------------------------------------
+  - id: schema-001
+    phase: schema
+    description: "Generate and apply database migration"
+    prompt: |
+      Read SCHEMA_REGISTRY.md completely.
+
+      Generate a Supabase migration SQL file at:
+      supabase/migrations/001_initial_schema.sql
+
+      The migration must include:
+      - All tables defined in SCHEMA_REGISTRY.md
+      - All RLS policies with company_id scoping
+      - All indexes specified
+      - All foreign key constraints
+      - All enums/types
+
+      After creating the file, apply it:
+      supabase db push
+
+      Then verify all tables exist by querying information_schema.
+    expected_outputs:
+      - supabase/migrations/001_initial_schema.sql
+    gates:
+      - type: file_exists
+        files:
+          - supabase/migrations/001_initial_schema.sql
+      - type: schema
+    max_retries: 3
+    on_fail: halt
+
+  # ----------------------------------------------------------
+  # PHASE 3: BUILD (customize these for your project)
+  # ----------------------------------------------------------
+  - id: build-001
+    phase: build
+    description: "Build authentication flow"
+    prompt: |
+      Read BLUEPRINT.md section on authentication.
+
+      Implement:
+      - Login page at src/app/login/page.tsx
+      - Supabase Auth integration (email/password)
+      - Protected route middleware at middleware.ts
+        CRITICAL: Full file replacement only. Never patch middleware.
+        Role fetch failure = redirect to /login only.
+      - Role-based redirects after login
+
+      All auth state must use Supabase Auth, not custom tokens.
+    expected_outputs:
+      - src/app/login/page.tsx
+      - middleware.ts
+    gates:
+      - type: compile
+      - type: build
+    max_retries: 3
+    on_fail: halt
+
+  # Add more build prompts here...
+  # Each prompt should be focused on ONE feature or module.
+  # Keep prompts atomic — one concern per prompt.
+
+  # ----------------------------------------------------------
+  # PHASE 4: INTEGRATION
+  # ----------------------------------------------------------
+  - id: integration-001
+    phase: integration
+    description: "Wire all modules together"
+    prompt: |
+      Read BLUEPRINT.md for navigation and routing structure.
+
+      Wire all implemented modules together:
+      - Navigation component with links to all pages
+      - Role-based nav visibility
+      - All imports resolved
+      - All dead code removed
+      - All console.logs removed
+
+      Run: pnpm tsc --noEmit  (fix any errors)
+      Run: pnpm run build     (fix any errors)
+    gates:
+      - type: compile
+      - type: build
+      - type: lint
+    max_retries: 3
+    on_fail: halt
+
+  # ----------------------------------------------------------
+  # PHASE 5: TEST
+  # ----------------------------------------------------------
+  - id: test-001
+    phase: test
+    description: "Write and run Playwright tests"
+    prompt: |
+      Create a Playwright test suite at tests/e2e.spec.ts
+
+      Tests must cover:
+      - Homepage loads correctly
+      - Login page renders
+      - Authentication flow works
+      - All main pages accessible after login
+      - Navigation works
+      - Key forms submit correctly
+
+      Minimum 10 test cases.
+      Run: npx playwright test --reporter=list
+      All tests must pass.
+    expected_outputs:
+      - tests/e2e.spec.ts
+    gates:
+      - type: test
+    max_retries: 3
+    on_fail: halt
+
+  # ----------------------------------------------------------
+  # PHASE 6: DEPLOY
+  # ----------------------------------------------------------
+  - id: deploy-001
+    phase: deploy
+    description: "Production deployment"
+    prompt: |
+      Execute the full deployment sequence:
+
+      1. pnpm tsc --noEmit — verify zero errors
+      2. pnpm run build — verify clean build
+      3. vercel --prod — deploy to production
+      4. npx playwright test — verify production
+      5. git add -A
+      6. git commit -m "[FORGE] Production deploy complete"
+      7. git push origin main
+
+      After deployment, verify the production URL loads correctly.
+    gates:
+      - type: compile
+      - type: build
+      - type: test
+    max_retries: 3
+    on_fail: halt
