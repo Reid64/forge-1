@@ -158,6 +158,7 @@ function Invoke-GitRollback {
     param([string]$workDir, [string]$promptId)
     Set-Location $workDir
     git reset --hard HEAD~1 2>&1 | Out-Null
+    git clean -fd 2>&1 | Out-Null
     # v1.2: Clean .next cache to prevent stale type references from cascading
     $nextDir = Join-Path $workDir ".next"
     if (Test-Path $nextDir) {
