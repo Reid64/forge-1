@@ -88,6 +88,71 @@ console.log(JSON.stringify(data, null, 2));
 }
 
 # ------------------------------------------------------------
+# Hard Timeout Enforcement
+# ------------------------------------------------------------
+# Runs an external command as its own OS process (not just an in-process
+# call-operator invocation) so that a hung child (npm/tsc/next/etc.) can
+# actually be killed on timeout. Uses `taskkill /T` to take out the whole
+# process tree, not just the top-level PID, since gate scripts spawn
+# grandchildren (npm -> node -> tsc) that would otherwise be orphaned.
+function Invoke-ProcessWithTimeout {
+    param(
+        [string]$FilePath,
+        [string[]]$ArgumentList,
+        [int]$TimeoutSeconds
+    )
+
+    $stdOutFile = [System.IO.Path]::GetTempFileName()
+    $stdErrFile = [System.IO.Path]::GetTempFileName()
+
+    try {
+        $proc = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList `
+            -NoNewWindow -PassThru `
+            -RedirectStandardOutput $stdOutFile -RedirectStandardError $stdErrFile
+
+        $exited = $proc.WaitForExit($TimeoutSeconds * 1000)
+
+        if (-not $exited) {
+            # Hard timeout — kill the entire process tree, not just the parent.
+            & taskkill /PID $proc.Id /T /F 2>&1 | Out-Null
+            Start-Sleep -Milliseconds 300
+            $output = "$(Get-Content $stdOutFile -Raw -ErrorAction SilentlyContinue)$(Get-Content $stdErrFile -Raw -ErrorAction SilentlyContinue)"
+            return @{ timedOut = $true; exitCode = -1; output = $output }
+        }
+
+        $output = "$(Get-Content $stdOutFile -Raw -ErrorAction SilentlyContinue)$(Get-Content $stdErrFile -Raw -ErrorAction SilentlyContinue)"
+        return @{ timedOut = $false; exitCode = $proc.ExitCode; output = $output }
+    }
+    finally {
+        Remove-Item $stdOutFile, $stdErrFile -ErrorAction SilentlyContinue
+    }
+}
+
+# Wraps a local (no-subprocess) scriptblock, such as the file_exists check,
+# in a hard timeout via a background job so a stalled network drive or
+# huge directory tree can't hang the pipeline indefinitely.
+function Invoke-ScriptBlockWithTimeout {
+    param(
+        [scriptblock]$ScriptBlock,
+        [object[]]$ArgumentList,
+        [int]$TimeoutSeconds
+    )
+
+    $job = Start-Job -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList
+    $completed = Wait-Job $job -Timeout $TimeoutSeconds
+
+    if (-not $completed) {
+        Stop-Job $job -ErrorAction SilentlyContinue
+        Remove-Job $job -Force -ErrorAction SilentlyContinue
+        return @{ timedOut = $true; result = $null }
+    }
+
+    $result = Receive-Job $job
+    Remove-Job $job -Force -ErrorAction SilentlyContinue
+    return @{ timedOut = $false; result = $result }
+}
+
+# ------------------------------------------------------------
 # Quality Gates
 # ------------------------------------------------------------
 function Run-Gate {
@@ -103,38 +168,86 @@ function Run-Gate {
         { $_ -in @("compile", "build", "lint", "test") } {
             # Delegate to the standalone gate script (single source of truth).
             # Each gate script exits 0 on pass, non-zero on fail.
+            # Hard timeout: 15 min for build (heavier), 5 min for compile/lint/test.
             $gateScript = Join-Path $GATES_DIR "$gateType.ps1"
             if (-not (Test-Path $gateScript)) {
                 Log "Gate script not found: $gateScript" "FAIL"
                 return @{ pass = $false; output = "Missing gate script: $gateScript" }
             }
-            $output = & $gateScript -workDir $workDir 2>&1 | Out-String
-            if ($LASTEXITCODE -eq 0) {
+
+            $timeoutSeconds = if ($gateType -eq "build") { 900 } else { 300 }
+            $procResult = Invoke-ProcessWithTimeout -FilePath "powershell.exe" `
+                -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $gateScript, "-workDir", $workDir) `
+                -TimeoutSeconds $timeoutSeconds
+
+            if ($procResult.timedOut) {
+                Log "Gate $($gateType.ToUpper()): FAILED — TIMEOUT after ${timeoutSeconds}s, process tree killed" "FAIL"
+                return @{ pass = $false; output = "TIMEOUT: gate '$gateType' exceeded ${timeoutSeconds}s and was killed.`n$($procResult.output)"; reason = "TIMEOUT" }
+            }
+            elseif ($procResult.exitCode -eq 0) {
                 Log "Gate $($gateType.ToUpper()): PASS" "PASS"
-                return @{ pass = $true; output = $output }
+                return @{ pass = $true; output = $procResult.output }
             }
             else {
                 Log "Gate $($gateType.ToUpper()): FAIL" "FAIL"
-                return @{ pass = $false; output = $output }
+                return @{ pass = $false; output = $procResult.output }
             }
         }
         "file_exists" {
-            $allExist = $true
-            $missing = @()
-            foreach ($file in $gateConfig.files) {
-                $fullPath = Join-Path $workDir $file
-                if (-not (Test-Path $fullPath)) {
-                    $allExist = $false
-                    $missing += $file
+            # Hard timeout: 5 min, same as compile, even though this is normally
+            # instantaneous — guards against a stalled network drive.
+            $timeoutSeconds = 300
+            $jobResult = Invoke-ScriptBlockWithTimeout -TimeoutSeconds $timeoutSeconds -ArgumentList @($workDir, $gateConfig.files) -ScriptBlock {
+                param($workDir, $files)
+                $missing = @()
+                foreach ($file in $files) {
+                    $fullPath = Join-Path $workDir $file
+                    if (-not (Test-Path $fullPath)) {
+                        $missing += $file
+                    }
                 }
+                return , $missing
             }
-            if ($allExist) {
+
+            if ($jobResult.timedOut) {
+                Log "Gate FILE_EXISTS: FAILED — TIMEOUT after ${timeoutSeconds}s" "FAIL"
+                return @{ pass = $false; output = "TIMEOUT: file_exists gate exceeded ${timeoutSeconds}s"; reason = "TIMEOUT" }
+            }
+
+            $missing = @($jobResult.result)
+            if ($missing.Count -eq 0) {
                 Log "Gate FILE_EXISTS: PASS" "PASS"
                 return @{ pass = $true; output = "All files exist" }
             }
             else {
                 Log "Gate FILE_EXISTS: FAIL — Missing: $($missing -join ', ')" "FAIL"
                 return @{ pass = $false; output = "Missing files: $($missing -join ', ')" }
+            }
+        }
+        { $_ -in @("shell", "command") } {
+            # Custom shell command gate. Hard timeout: 5 min.
+            $timeoutSeconds = 300
+            $cmdText = $gateConfig.command
+            if (-not $cmdText) {
+                Log "Gate $($gateType.ToUpper()): FAIL — no command specified in gate config" "FAIL"
+                return @{ pass = $false; output = "No 'command' specified for $gateType gate" }
+            }
+
+            $procResult = Invoke-ProcessWithTimeout -FilePath "powershell.exe" `
+                -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $cmdText) `
+                -TimeoutSeconds $timeoutSeconds
+
+            if ($procResult.timedOut) {
+                Log "Gate $($gateType.ToUpper()): FAILED — TIMEOUT after ${timeoutSeconds}s, process tree killed" "FAIL"
+                return @{ pass = $false; output = "TIMEOUT: gate '$gateType' exceeded ${timeoutSeconds}s and was killed.`n$($procResult.output)"; reason = "TIMEOUT" }
+            }
+            elseif ($procResult.exitCode -eq 0) {
+                Log "Gate $($gateType.ToUpper()): PASS" "PASS"
+                return @{ pass = $true; output = $procResult.output }
+            }
+            else {
+                Log "Gate $($gateType.ToUpper()): FAIL" "FAIL"
+                return @{ pass = $false; output = $procResult.output }
             }
         }
         "schema" {
@@ -202,6 +315,38 @@ function Invoke-BuildAgent {
 }
 
 # ------------------------------------------------------------
+# Deploy Command Guard
+# ------------------------------------------------------------
+# Strips any line containing "vercel deploy" or "npx vercel" out of a
+# prompt's text before it is ever sent to the Build/Recovery Agent, so
+# Claude Code can never execute a production deploy from inside a FORGE
+# queue. Deploys must be run manually after the queue completes.
+function Remove-DeployCommands {
+    param([string]$promptText)
+
+    if (-not $promptText) { return $promptText }
+
+    $lines = $promptText -split "`r?`n"
+    $filtered = @()
+    $stripped = $false
+
+    foreach ($line in $lines) {
+        if ($line -match "vercel\s+deploy" -or $line -match "npx\s+vercel") {
+            $stripped = $true
+            Log "DEPLOY GUARD: Stripped disallowed line from prompt: '$($line.Trim())'" "WARN"
+            continue
+        }
+        $filtered += $line
+    }
+
+    if ($stripped) {
+        Log "Deploy commands are not permitted inside FORGE prompts — run npx vercel deploy --prod manually after the queue completes." "WARN"
+    }
+
+    return ($filtered -join "`n")
+}
+
+# ------------------------------------------------------------
 # Recovery Agent — Analyzes failures and attempts fixes
 # ------------------------------------------------------------
 function Invoke-RecoveryAgent {
@@ -266,6 +411,30 @@ function Start-ForgePipeline {
     Log "Found $totalPrompts prompts across queue" "INFO"
     Log "Governance docs: $($governance -join ', ')" "INFO"
 
+    # ------------------------------------------------------------
+    # PREFLIGHT VERIFICATION
+    # Must print before any Build Agent executes. Confirms project name,
+    # total prompt count, and the full ordered list of prompt IDs.
+    # ------------------------------------------------------------
+    $promptIdList = @()
+    foreach ($p in $prompts) { $promptIdList += $p.id }
+
+    Write-Host ""
+    Write-Host "========================================================" -ForegroundColor Black -BackgroundColor Yellow
+    Write-Host "  FORGE PREFLIGHT VERIFICATION" -ForegroundColor Black -BackgroundColor Yellow
+    Write-Host "========================================================" -ForegroundColor Black -BackgroundColor Yellow
+    Write-Host "  PROJECT:       $project" -ForegroundColor Black -BackgroundColor Yellow
+    Write-Host "  TOTAL PROMPTS: $totalPrompts" -ForegroundColor Black -BackgroundColor Yellow
+    Write-Host "  PROMPT IDS (execution order):" -ForegroundColor Black -BackgroundColor Yellow
+    for ($idx = 0; $idx -lt $promptIdList.Count; $idx++) {
+        Write-Host ("    [{0}] {1}" -f $idx, $promptIdList[$idx]) -ForegroundColor Black -BackgroundColor Yellow
+    }
+    Write-Host "========================================================" -ForegroundColor Black -BackgroundColor Yellow
+    Write-Host ""
+
+    Log "PREFLIGHT: Project=$project TotalPrompts=$totalPrompts" "INFO"
+    Log "PREFLIGHT: Prompt IDs in order: $($promptIdList -join ', ')" "INFO"
+
     # Determine work directory (where the actual app is built).
     # Built as a sibling of the FORGE root, e.g. C:\Users\<you>\Documents\<project>.
     $workDir = Join-Path (Split-Path $FORGE_ROOT -Parent) $queue.project
@@ -289,6 +458,10 @@ function Start-ForgePipeline {
         $phase = $prompt.phase
         $description = $prompt.description
         $maxRetries = if ($prompt.max_retries) { $prompt.max_retries } else { 3 }
+
+        # Sanitize the prompt text once up front so both the Build Agent and
+        # any Recovery Agent invocation see the same deploy-stripped text.
+        $sanitizedPromptText = Remove-DeployCommands -promptText $prompt.prompt
 
         Log "" "INFO"
         Log "────────────────────────────────────" "INFO"
@@ -317,7 +490,7 @@ function Start-ForgePipeline {
             # Run Build Agent
             Log "Executing Build Agent..." "INFO"
             $buildResult = Invoke-BuildAgent `
-                -prompt $prompt.prompt `
+                -prompt $sanitizedPromptText `
                 -workDir $workDir `
                 -governanceDocs $governance `
                 -model $(if ($settings.build_model) { $settings.build_model } else { "claude-sonnet-4-6-20250514" })
@@ -331,6 +504,7 @@ function Start-ForgePipeline {
                     $gateType = $gate.type
                     $gateConfig = @{}
                     if ($gate.files) { $gateConfig.files = $gate.files }
+                    if ($gate.command) { $gateConfig.command = $gate.command }
 
                     $gateResult = Run-Gate -gateType $gateType -workDir $workDir -gateConfig $gateConfig
 
@@ -353,7 +527,7 @@ function Start-ForgePipeline {
 
                 if ($retryCount -lt $maxRetries) {
                     $recoveryResult = Invoke-RecoveryAgent `
-                        -originalPrompt $prompt.prompt `
+                        -originalPrompt $sanitizedPromptText `
                         -errorOutput $failedGateOutput `
                         -workDir $workDir
                 }
