@@ -1,0 +1,49 @@
+queues:
+  - id: q07-dashboard
+    file: queue-07-dashboard-rebuild.yaml
+    description: "Dashboard components d1-006 through d1-019 full rebuild"
+    status: complete
+    depends_on: []
+    prompt_count: 14
+    estimated_hours: 6
+    priority: 1
+  - id: q08-spdi
+    file: queue-08-spdi-fixes.yaml
+    description: "SPDI governance lib files approvals API governance dashboard"
+    status: complete
+    depends_on: []
+    prompt_count: 5
+    estimated_hours: 2
+    priority: 2
+  - id: q09-a05-a06
+    file: queue-09-a05-a06.yaml
+    description: "A-05 Page Validator 15 gates and A-06 Internal Linker"
+    status: complete
+    depends_on: [q08-spdi]
+    prompt_count: 5
+    estimated_hours: 3
+    priority: 3
+  - id: q10-phase15
+    file: queue-10-phase15-agents.yaml
+    description: "Phase 1.5 agents A-21 A-25 A-26 A-27 A-32 through A-38 A-46"
+    status: complete
+    depends_on: [q09-a05-a06]
+    prompt_count: 11
+    estimated_hours: 8
+    priority: 4
+  - id: q11-phase2
+    file: queue-11-phase2-agents.yaml
+    description: "Phase 2 agents A-47 A-48 A-49"
+    status: complete
+    depends_on: [q10-phase15]
+    prompt_count: 5
+    estimated_hours: 4
+    priority: 5
+  - id: q12-rls-batch2
+    file: queue-12-rls-batch2.yaml
+    description: "Pattern A RLS migration Batch 2 - 18 page/content-pipeline tables (written, not applied)"
+    status: pending
+    depends_on: [q08-spdi]
+    prompt_count: 2
+    estimated_hours: 1
+    priority: 6

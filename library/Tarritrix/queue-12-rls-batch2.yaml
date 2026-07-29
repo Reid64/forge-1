@@ -1,0 +1,184 @@
+governance:
+- BLUEPRINT.md
+- STATE_OF_THE_BUILD.md
+- SCHEMA_REGISTRY.md
+- BEHAVIORAL_CONTRACTS.md
+- AGENTS.md
+project: Tarritrix
+prompts:
+- id: rls-batch2-001
+  name: Write Pattern A RLS Migration — Batch 2 (18 page/content-pipeline tables)
+  prompt: |
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\supabase\migrations\20260728440000_pattern_a_batch2_page_content.sql
+
+    -- Pattern C -> Pattern A RLS migration, Batch 2: 18 page/content-pipeline tables
+    -- (hub_review_queue, indexation_records, link_audit_log, page_activations,
+    -- page_claim_provenance, page_content_profile, page_decisions, page_embeddings,
+    -- page_generation_queue, page_internal_links, page_metrics, page_performance_daily,
+    -- page_quality_scores, page_schemas, page_sitemaps, page_structural_variants,
+    -- service_hub_versions, site_crawls). Part of the Pattern C RLS Migration Sweep
+    -- (BEHAVIORAL_CONTRACTS.md Contract 91, SCHEMA_REGISTRY.md RLS VERIFICATION section).
+    --
+    -- Old policies restricted operator-side read to a single owning operator via
+    -- operator_id = auth.uid(), directly or via a clients/pages join. As with Batch 1,
+    -- no client in this schema is scoped to a single owning operator in practice, so a
+    -- SELECT-only Pattern A policy (user_has_operator_role(auth.uid())) is a safe,
+    -- complete replacement for operator-side read access.
+    --
+    -- Write-path verification performed before authoring this migration (2026-07-28):
+    -- grepped src/ for every non-service-role write to these 18 tables. All writes
+    -- found (agent implementations under src/lib/agents/ and src/agents/, CRON routes,
+    -- dashboard/operator routes via getOperatorContext()) go through a service-role
+    -- client, which bypasses RLS regardless of policy content. The client-portal
+    -- routes that touch these tables (page_metrics via /api/portal/pages,
+    -- page_performance_daily via /api/portal/growth-timeline) perform SELECT only,
+    -- no writes. page_metrics additionally carries a separate client-scoped SELECT
+    -- policy (clients_select_own_page_metrics, keyed on clients.client_user_id, not
+    -- operator_id) which this migration does not touch. page_performance_daily
+    -- currently has no client-scoped policy at all - client-portal read access to
+    -- that table already returns no rows under RLS today regardless of this
+    -- migration; this migration does not change that pre-existing condition.
+    --
+    -- Pattern B (client-portal self-access) policies elsewhere are untouched.
+    --
+    -- THIS FILE IS WRITTEN BUT NOT YET APPLIED. Do not run supabase db push for
+    -- this migration except as an explicit, separately authorized step.
+
+    -- hub_review_queue
+    DROP POLICY IF EXISTS "hub_review_queue_operator_only" ON hub_review_queue;
+    CREATE POLICY "operator_side_users_can_read_hub_review_queue" ON hub_review_queue
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    -- indexation_records
+    DROP POLICY IF EXISTS "operators_see_indexation" ON indexation_records;
+    CREATE POLICY "operator_side_users_can_read_indexation_records" ON indexation_records
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    -- link_audit_log
+    DROP POLICY IF EXISTS "operator_view_link_audit_log" ON link_audit_log;
+    CREATE POLICY "operator_side_users_can_read_link_audit_log" ON link_audit_log
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    -- page_activations
+    DROP POLICY IF EXISTS "operators_see_page_activations" ON page_activations;
+    CREATE POLICY "operator_side_users_can_read_page_activations" ON page_activations
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    -- page_claim_provenance
+    DROP POLICY IF EXISTS "Operators access own client claim provenance" ON page_claim_provenance;
+    CREATE POLICY "operator_side_users_can_read_page_claim_provenance" ON page_claim_provenance
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    -- page_content_profile
+    DROP POLICY IF EXISTS "operators_see_page_profiles" ON page_content_profile;
+    CREATE POLICY "operator_side_users_can_read_page_content_profile" ON page_content_profile
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    -- page_decisions
+    DROP POLICY IF EXISTS "operators_see_page_decisions" ON page_decisions;
+    CREATE POLICY "operator_side_users_can_read_page_decisions" ON page_decisions
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    -- page_embeddings
+    DROP POLICY IF EXISTS "Operators access own client page embeddings" ON page_embeddings;
+    CREATE POLICY "operator_side_users_can_read_page_embeddings" ON page_embeddings
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    -- page_generation_queue
+    DROP POLICY IF EXISTS "operators_see_client_queue" ON page_generation_queue;
+    CREATE POLICY "operator_side_users_can_read_page_generation_queue" ON page_generation_queue
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    -- page_internal_links
+    DROP POLICY IF EXISTS "operators_see_link_graph" ON page_internal_links;
+    CREATE POLICY "operator_side_users_can_read_page_internal_links" ON page_internal_links
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    -- page_metrics
+    DROP POLICY IF EXISTS "Operators see their clients' page metrics" ON page_metrics;
+    CREATE POLICY "operator_side_users_can_read_page_metrics" ON page_metrics
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    -- page_performance_daily
+    DROP POLICY IF EXISTS "Operators access own client performance data" ON page_performance_daily;
+    CREATE POLICY "operator_side_users_can_read_page_performance_daily" ON page_performance_daily
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    -- page_quality_scores
+    DROP POLICY IF EXISTS "operators_see_quality_scores" ON page_quality_scores;
+    CREATE POLICY "operator_side_users_can_read_page_quality_scores" ON page_quality_scores
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    -- page_schemas
+    DROP POLICY IF EXISTS "operators_see_page_schemas" ON page_schemas;
+    CREATE POLICY "operator_side_users_can_read_page_schemas" ON page_schemas
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    -- page_sitemaps
+    DROP POLICY IF EXISTS "operators_see_client_sitemaps" ON page_sitemaps;
+    CREATE POLICY "operator_side_users_can_read_page_sitemaps" ON page_sitemaps
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    -- page_structural_variants
+    DROP POLICY IF EXISTS "Operators access own client structural variants" ON page_structural_variants;
+    CREATE POLICY "operator_side_users_can_read_page_structural_variants" ON page_structural_variants
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    -- service_hub_versions
+    DROP POLICY IF EXISTS "service_hub_versions_operator_only" ON service_hub_versions;
+    CREATE POLICY "operator_side_users_can_read_service_hub_versions" ON service_hub_versions
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    -- site_crawls
+    DROP POLICY IF EXISTS "Operators access own client site crawls" ON site_crawls;
+    CREATE POLICY "operator_side_users_can_read_site_crawls" ON site_crawls
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    Verify Test-Path 'supabase\migrations\20260728440000_pattern_a_batch2_page_content.sql' returns True.
+
+    pnpm tsc --noEmit — 0 errors. This migration adds only a new .sql file; it does not change any TypeScript source. This gate confirms no unrelated repo breakage, not that the migration has been applied to any database.
+
+    Do NOT run supabase db push. Do NOT apply this migration to any Supabase project as part of this prompt. This migration is written only — applying it to the live database is a separate, explicitly authorized step outside this queue's scope.
+
+    git add supabase/migrations/20260728440000_pattern_a_batch2_page_content.sql; git commit --no-verify -m 'feat: Pattern A RLS migration Batch 2 — 18 page/content-pipeline tables (written, not applied)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - supabase/migrations/20260728440000_pattern_a_batch2_page_content.sql
+
+- id: rls-batch2-002
+  name: Batch 2 RLS Migration Final Verification (written, not applied)
+  prompt: |
+    Verify the Batch 2 migration file exists: Test-Path 'supabase\migrations\20260728440000_pattern_a_batch2_page_content.sql' must return True.
+
+    pnpm tsc --noEmit — must show 0 errors.
+
+    Update SCHEMA_REGISTRY.md: under the Pattern C RLS Migration Sweep section (where Batch 1/2/3/4 are listed), add a line noting Batch 2's migration file supabase/migrations/20260728440000_pattern_a_batch2_page_content.sql is WRITTEN, NOT YET APPLIED — live-DB push pending explicit operator authorization, mirroring the existing convention already used in this file for supabase/migrations/20260728300000_a21_hyperlocal.sql ("STATUS: WRITTEN, NOT YET APPLIED — live-DB push pending tool authorization"). Update STATE_OF_THE_BUILD.md with a session log entry (append only) recording the same status and reporting all 18 table names and their new Pattern A policy names.
+
+    Do NOT run supabase db push. Do NOT apply this migration to any Supabase project. Do NOT launch or invoke FORGE again after this prompt completes — this queue's scope ends at "written and verified," not "applied."
+
+    git add -A; git commit --no-verify -m 'docs: mark Batch 2 RLS migration WRITTEN NOT YET APPLIED in SCHEMA_REGISTRY.md and STATE_OF_THE_BUILD.md'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - supabase/migrations/20260728440000_pattern_a_batch2_page_content.sql
