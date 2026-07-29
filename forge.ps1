@@ -1,5 +1,5 @@
-﻿# ============================================================
-# forge.ps1 — FORGE Master Orchestrator
+# ============================================================
+# forge.ps1 - FORGE Master Orchestrator
 # ============================================================
 # Usage: .\forge.ps1 -project brightbox
 #
@@ -18,6 +18,22 @@ param(
     [Parameter(Mandatory=$false)]
     [switch]$dryRun = $false
 )
+
+# ------------------------------------------------------------
+# Console / Output Encoding
+# ------------------------------------------------------------
+# Force UTF-8 console output so any non-ASCII text (governance docs,
+# CLI output, etc.) renders correctly regardless of the host's default
+# codepage. This is a hedge, not a dependency - all divider/banner
+# strings this script prints are plain ASCII, so rendering is correct
+# even on a console that ignores this setting entirely.
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+
+# ------------------------------------------------------------
+# Window / Tab Title
+# ------------------------------------------------------------
+$host.UI.RawUI.WindowTitle = "FORGE - $($project.ToUpper())"
 
 # ------------------------------------------------------------
 # Configuration
@@ -56,7 +72,51 @@ function Log {
             default { "White" }
         }
     )
-    Add-Content -Path $LOG_FILE -Value $entry
+    Add-Content -Path $LOG_FILE -Value $entry -Encoding UTF8
+}
+
+# Prints a line with a specific console color AND writes the same plain
+# text into the log file (bypassing Log's level->color mapping, since
+# these banners need colors that don't correspond to a log level).
+function Write-ColoredLogLine {
+    param([string]$text, [string]$color)
+    Write-Host $text -ForegroundColor $color
+    $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Add-Content -Path $LOG_FILE -Value "[$ts] [INFO] $text" -Encoding UTF8
+}
+
+# Project name banner - bold caps, orange. Printed at the top of preflight
+# and repeated at the start of every single prompt's log block.
+# Note: PowerShell's built-in ConsoleColor enum has no true "Orange" -
+# DarkYellow is the closest available and is what most terminal color
+# schemes render as orange/amber.
+function Write-ProjectBanner {
+    param([string]$projectName)
+    Write-ColoredLogLine -text "=== $($projectName.ToUpper()) ===" -color "DarkYellow"
+}
+
+# Prompt counter - bold caps, purple. PowerShell's ConsoleColor enum has
+# no true "Purple" either - Magenta is the closest built-in and is used
+# here as the stand-in.
+function Write-PromptCounter {
+    param([int]$current, [int]$total)
+    Write-ColoredLogLine -text "PROMPT $current OF $total" -color "Magenta"
+}
+
+# Logs a single timestamped state transition for the current prompt.
+# Every STARTED / RETRY / FAILED / PASSED transition gets its own line.
+function Write-Transition {
+    param([string]$state, [string]$reason = "")
+    $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $line = if ($reason) { "$state at $ts - $reason" } else { "$state at $ts" }
+    $level = switch -Wildcard ($state) {
+        "STARTED" { "INFO" }
+        "RETRY*"  { "WARN" }
+        "FAILED"  { "FAIL" }
+        "PASSED"  { "PASS" }
+        default   { "INFO" }
+    }
+    Log $line $level
 }
 
 # ------------------------------------------------------------
@@ -111,9 +171,10 @@ function Invoke-ProcessWithTimeout {
             -RedirectStandardOutput $stdOutFile -RedirectStandardError $stdErrFile
 
         $exited = $proc.WaitForExit($TimeoutSeconds * 1000)
+        if ($exited) { $proc.WaitForExit() }
 
         if (-not $exited) {
-            # Hard timeout — kill the entire process tree, not just the parent.
+            # Hard timeout - kill the entire process tree, not just the parent.
             & taskkill /PID $proc.Id /T /F 2>&1 | Out-Null
             Start-Sleep -Milliseconds 300
             $output = "$(Get-Content $stdOutFile -Raw -ErrorAction SilentlyContinue)$(Get-Content $stdErrFile -Raw -ErrorAction SilentlyContinue)"
@@ -121,7 +182,8 @@ function Invoke-ProcessWithTimeout {
         }
 
         $output = "$(Get-Content $stdOutFile -Raw -ErrorAction SilentlyContinue)$(Get-Content $stdErrFile -Raw -ErrorAction SilentlyContinue)"
-        return @{ timedOut = $false; exitCode = $proc.ExitCode; output = $output }
+        $exitCode = if ($null -eq $proc.ExitCode) { 0 } else { $proc.ExitCode }
+        return @{ timedOut = $false; exitCode = $exitCode; output = $output }
     }
     finally {
         Remove-Item $stdOutFile, $stdErrFile -ErrorAction SilentlyContinue
@@ -181,7 +243,7 @@ function Run-Gate {
                 -TimeoutSeconds $timeoutSeconds
 
             if ($procResult.timedOut) {
-                Log "Gate $($gateType.ToUpper()): FAILED — TIMEOUT after ${timeoutSeconds}s, process tree killed" "FAIL"
+                Log "Gate $($gateType.ToUpper()): FAILED - TIMEOUT after ${timeoutSeconds}s, process tree killed" "FAIL"
                 return @{ pass = $false; output = "TIMEOUT: gate '$gateType' exceeded ${timeoutSeconds}s and was killed.`n$($procResult.output)"; reason = "TIMEOUT" }
             }
             elseif ($procResult.exitCode -eq 0) {
@@ -195,7 +257,7 @@ function Run-Gate {
         }
         "file_exists" {
             # Hard timeout: 5 min, same as compile, even though this is normally
-            # instantaneous — guards against a stalled network drive.
+            # instantaneous - guards against a stalled network drive.
             $timeoutSeconds = 300
             $jobResult = Invoke-ScriptBlockWithTimeout -TimeoutSeconds $timeoutSeconds -ArgumentList @($workDir, $gateConfig.files) -ScriptBlock {
                 param($workDir, $files)
@@ -210,7 +272,7 @@ function Run-Gate {
             }
 
             if ($jobResult.timedOut) {
-                Log "Gate FILE_EXISTS: FAILED — TIMEOUT after ${timeoutSeconds}s" "FAIL"
+                Log "Gate FILE_EXISTS: FAILED - TIMEOUT after ${timeoutSeconds}s" "FAIL"
                 return @{ pass = $false; output = "TIMEOUT: file_exists gate exceeded ${timeoutSeconds}s"; reason = "TIMEOUT" }
             }
 
@@ -220,7 +282,7 @@ function Run-Gate {
                 return @{ pass = $true; output = "All files exist" }
             }
             else {
-                Log "Gate FILE_EXISTS: FAIL — Missing: $($missing -join ', ')" "FAIL"
+                Log "Gate FILE_EXISTS: FAIL - Missing: $($missing -join ', ')" "FAIL"
                 return @{ pass = $false; output = "Missing files: $($missing -join ', ')" }
             }
         }
@@ -229,7 +291,7 @@ function Run-Gate {
             $timeoutSeconds = 300
             $cmdText = $gateConfig.command
             if (-not $cmdText) {
-                Log "Gate $($gateType.ToUpper()): FAIL — no command specified in gate config" "FAIL"
+                Log "Gate $($gateType.ToUpper()): FAIL - no command specified in gate config" "FAIL"
                 return @{ pass = $false; output = "No 'command' specified for $gateType gate" }
             }
 
@@ -238,7 +300,7 @@ function Run-Gate {
                 -TimeoutSeconds $timeoutSeconds
 
             if ($procResult.timedOut) {
-                Log "Gate $($gateType.ToUpper()): FAILED — TIMEOUT after ${timeoutSeconds}s, process tree killed" "FAIL"
+                Log "Gate $($gateType.ToUpper()): FAILED - TIMEOUT after ${timeoutSeconds}s, process tree killed" "FAIL"
                 return @{ pass = $false; output = "TIMEOUT: gate '$gateType' exceeded ${timeoutSeconds}s and was killed.`n$($procResult.output)"; reason = "TIMEOUT" }
             }
             elseif ($procResult.exitCode -eq 0) {
@@ -253,7 +315,7 @@ function Run-Gate {
         "schema" {
             # Verify Supabase tables exist
             Log "Gate SCHEMA: Checking Supabase tables..." "GATE"
-            # This would query information_schema — simplified here
+            # This would query information_schema - simplified here
             Log "Gate SCHEMA: PASS (manual verify recommended)" "PASS"
             return @{ pass = $true; output = "Schema check passed" }
         }
@@ -265,7 +327,7 @@ function Run-Gate {
 }
 
 # ------------------------------------------------------------
-# Build Agent — Executes a prompt via Claude Code CLI
+# Build Agent - Executes a prompt via Claude Code CLI
 # ------------------------------------------------------------
 function Invoke-BuildAgent {
     param(
@@ -300,7 +362,7 @@ function Invoke-BuildAgent {
     Set-Location $workDir
 
     if ($dryRun) {
-        Log "DRY RUN — Would execute prompt ($($fullPrompt.Length) chars)" "INFO"
+        Log "DRY RUN - Would execute prompt ($($fullPrompt.Length) chars)" "INFO"
         return "DRY RUN"
     }
 
@@ -340,14 +402,14 @@ function Remove-DeployCommands {
     }
 
     if ($stripped) {
-        Log "Deploy commands are not permitted inside FORGE prompts — run npx vercel deploy --prod manually after the queue completes." "WARN"
+        Log "Deploy commands are not permitted inside FORGE prompts - run npx vercel deploy --prod manually after the queue completes." "WARN"
     }
 
     return ($filtered -join "`n")
 }
 
 # ------------------------------------------------------------
-# Recovery Agent — Analyzes failures and attempts fixes
+# Recovery Agent - Analyzes failures and attempts fixes
 # ------------------------------------------------------------
 function Invoke-RecoveryAgent {
     param(
@@ -369,7 +431,7 @@ INSTRUCTIONS:
 1. Read the error carefully
 2. Identify the root cause
 3. Apply the fix directly to the codebase
-4. Do NOT introduce new features — only fix the error
+4. Do NOT introduce new features - only fix the error
 5. After fixing, the quality gates will re-run automatically
 "@
 
@@ -386,6 +448,7 @@ INSTRUCTIONS:
 # Main Pipeline
 # ------------------------------------------------------------
 function Start-ForgePipeline {
+    Write-ProjectBanner -projectName $project
     Log "========================================" "INFO"
     Log "  FORGE Pipeline Starting" "INFO"
     Log "  Project: $project" "INFO"
@@ -414,7 +477,7 @@ function Start-ForgePipeline {
     # ------------------------------------------------------------
     # PREFLIGHT VERIFICATION
     # Must print before any Build Agent executes. Confirms project name,
-    # total prompt count, and the full ordered list of prompt IDs.
+    # total prompt count, and the full ordered list of prompt IDs + names.
     # ------------------------------------------------------------
     $promptIdList = @()
     foreach ($p in $prompts) { $promptIdList += $p.id }
@@ -427,7 +490,7 @@ function Start-ForgePipeline {
     Write-Host "  TOTAL PROMPTS: $totalPrompts" -ForegroundColor Black -BackgroundColor Yellow
     Write-Host "  PROMPT IDS (execution order):" -ForegroundColor Black -BackgroundColor Yellow
     for ($idx = 0; $idx -lt $promptIdList.Count; $idx++) {
-        Write-Host ("    [{0}] {1}" -f $idx, $promptIdList[$idx]) -ForegroundColor Black -BackgroundColor Yellow
+        Write-Host ("    [{0}] {1} - {2}" -f $idx, $promptIdList[$idx], $prompts[$idx].description) -ForegroundColor Black -BackgroundColor Yellow
     }
     Write-Host "========================================================" -ForegroundColor Black -BackgroundColor Yellow
     Write-Host ""
@@ -464,10 +527,12 @@ function Start-ForgePipeline {
         $sanitizedPromptText = Remove-DeployCommands -promptText $prompt.prompt
 
         Log "" "INFO"
-        Log "────────────────────────────────────" "INFO"
-        Log "PROMPT $($i + 1)/$totalPrompts : $promptId" "INFO"
-        Log "Phase: $phase | $description" "INFO"
-        Log "────────────────────────────────────" "INFO"
+        Write-ProjectBanner -projectName $project
+        Write-PromptCounter -current ($i + 1) -total $totalPrompts
+        Log "PROMPT ID: $promptId" "INFO"
+        Log "PROMPT NAME: $description" "INFO"
+        Log "PHASE: $phase" "INFO"
+        Write-Transition -state "STARTED"
 
         # Save current state
         $stateObj = @{
@@ -476,7 +541,7 @@ function Start-ForgePipeline {
             phase = $phase
             timestamp = (Get-Date -Format "o")
         } | ConvertTo-Json
-        Set-Content -Path "$STATE_DIR\current-prompt.json" -Value $stateObj
+        Set-Content -Path "$STATE_DIR\current-prompt.json" -Value $stateObj -Encoding UTF8
 
         # Execute the prompt
         $retryCount = 0
@@ -484,7 +549,7 @@ function Start-ForgePipeline {
 
         while ($retryCount -lt $maxRetries -and -not $promptPassed) {
             if ($retryCount -gt 0) {
-                Log "Retry attempt $retryCount/$maxRetries for $promptId" "WARN"
+                Write-Transition -state "RETRY $retryCount"
             }
 
             # Run Build Agent
@@ -519,10 +584,13 @@ function Start-ForgePipeline {
             if ($allGatesPassed) {
                 $promptPassed = $true
                 $results.passed++
+                Write-Transition -state "PASSED"
                 Log "PROMPT $promptId : ALL GATES PASSED" "PASS"
             }
             else {
                 $retryCount++
+                $shortReason = if ($failedGateOutput.Length -gt 200) { $failedGateOutput.Substring(0, 200) + "..." } else { $failedGateOutput }
+                Write-Transition -state "FAILED" -reason $shortReason
                 Log "Gate failed. Invoking Recovery Agent..." "WARN"
 
                 if ($retryCount -lt $maxRetries) {
@@ -536,15 +604,16 @@ function Start-ForgePipeline {
 
         if (-not $promptPassed) {
             $results.failed++
+            Write-Transition -state "FAILED" -reason "exhausted $maxRetries retries"
             Log "PROMPT $promptId : FAILED after $maxRetries retries" "ERROR"
 
             if ($prompt.on_fail -eq "halt") {
                 $results.halted = $true
                 $results.haltReason = "Prompt $promptId failed after $maxRetries retries. Gate output: $failedGateOutput"
-                Log "PIPELINE HALTED — $($results.haltReason)" "ERROR"
+                Log "PIPELINE HALTED - $($results.haltReason)" "ERROR"
 
                 # Write halt reason to state
-                Set-Content -Path "$STATE_DIR\halt-reason.md" -Value @"
+                Set-Content -Path "$STATE_DIR\halt-reason.md" -Encoding UTF8 -Value @"
 # FORGE Pipeline Halted
 **Time:** $(Get-Date -Format "o")
 **Project:** $project
@@ -565,7 +634,7 @@ $failedGateOutput
             retries = $retryCount
             timestamp = (Get-Date -Format "o")
         } | ConvertTo-Json
-        Add-Content -Path "$STATE_DIR\gate-results.jsonl" -Value $gateResultObj
+        Add-Content -Path "$STATE_DIR\gate-results.jsonl" -Value $gateResultObj -Encoding UTF8
     }
 
     # Final Summary
@@ -589,12 +658,12 @@ $failedGateOutput
 **Halted:** $($results.halted)
 
 ## Result
-$(if ($results.halted) { "HALTED: $($results.haltReason)" } elseif ($results.failed -gt 0) { "COMPLETED WITH FAILURES" } else { "SUCCESS — All prompts passed all gates" })
+$(if ($results.halted) { "HALTED: $($results.haltReason)" } elseif ($results.failed -gt 0) { "COMPLETED WITH FAILURES" } else { "SUCCESS - All prompts passed all gates" })
 
 ## Build Log
 See: $LOG_FILE
 "@
-    Set-Content -Path $reportPath -Value $report
+    Set-Content -Path $reportPath -Value $report -Encoding UTF8
     Log "Report saved: $reportPath" "INFO"
 
     return $results
@@ -604,4 +673,3 @@ See: $LOG_FILE
 # Execute
 # ------------------------------------------------------------
 Start-ForgePipeline
-
