@@ -42,7 +42,7 @@ queues:
   - id: q12-rls-batch2
     file: queue-12-rls-batch2.yaml
     description: "Pattern A RLS migration Batch 2 - 18 page/content-pipeline tables (written, not applied)"
-    status: pending
+    status: complete
     depends_on: [q08-spdi]
     prompt_count: 2
     estimated_hours: 1
@@ -50,7 +50,7 @@ queues:
   - id: q13-rls-batch3
     file: queue-13-rls-batch3.yaml
     description: "Pattern A RLS migration Batch 3 - 15 agent/governance tables (written, not applied)"
-    status: pending
+    status: complete
     depends_on: [q12-rls-batch2]
     prompt_count: 2
     estimated_hours: 1
@@ -58,7 +58,7 @@ queues:
   - id: q14-dashboard-stubs
     file: queue-14-dashboard-stubs.yaml
     description: "Replace 5 dashboard stub pages (agents, billing, compliance, pages, settings) with real UI wired to existing backing routes"
-    status: pending
+    status: complete
     depends_on: [q07-dashboard]
     prompt_count: 6
     estimated_hours: 3
@@ -66,7 +66,7 @@ queues:
   - id: q15-missing-routes
     file: queue-15-missing-routes.yaml
     description: "Governance-named routes missing on disk with no GBP/backlink dependency - Zone 3 health/recommendations, audit log, profile, per-client health/page-metrics/geo-grid, A-19 field-service webhook receiver, GSC dashboard+portal surfaces"
-    status: running
+    status: complete
     depends_on: [q14-dashboard-stubs, q11-phase2]
     prompt_count: 10
     estimated_hours: 5
@@ -74,7 +74,7 @@ queues:
   - id: q16-due-now-agents
     file: queue-16-due-now-agents.yaml
     description: "A-42 Penalty Pattern Detection Engine - sole due-now agent from the 20-agent MISSING reconciliation (Phase 1.5, no unmet external-API dependency); disclosed partial scope on 2 of 7 spec signals"
-    status: pending
+    status: complete
     depends_on: [q10-phase15]
     prompt_count: 3
     estimated_hours: 2
@@ -88,3 +88,11 @@ queues:
     prompt_count: 6
     estimated_hours: 3
     priority: 11
+  - id: q18-routes-and-rls-batch4
+    file: queue-18-routes-and-rls-batch4.yaml
+    description: "Re-run route-004/005/008 under a corrected file_exists gate (root cause: Test-Path without -LiteralPath false-negatived on [id]-bracketed paths, fixed in gates/file_exists.ps1) + Pattern A RLS Batch 4 (24 tables), written and applied via Supabase MCP in the same queue"
+    status: pending
+    depends_on: [q15-missing-routes, q13-rls-batch3]
+    prompt_count: 5
+    estimated_hours: 2
+    priority: 12

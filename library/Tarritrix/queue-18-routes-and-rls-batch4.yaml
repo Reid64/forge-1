@@ -1,0 +1,286 @@
+# QUEUE 18 — Route Gate-Failure Fixes (route-004/005/008) + Pattern A RLS Batch 4 (24 tables, applied)
+#
+# PART A — route-004-fix, route-005-fix, route-008-fix (queue-15's now-failed prompts, corrected shape)
+#
+# Root cause (verified 2026-07-29, not guessed): `gates/file_exists.ps1` called
+# `Test-Path $full` without `-LiteralPath`. PowerShell's Test-Path treats `[` and `]` as
+# wildcard character-class syntax, so a literal path containing a Next.js dynamic-route folder
+# like `[id]` was being interpreted as "match a single character that is i or d" instead of the
+# literal three characters — a guaranteed false negative on every bracketed path. This was
+# confirmed directly: all 6 target files below already exist on disk, already compile clean,
+# and are already committed (`15c85e3` route-004, `d018ab6` route-005, `077bbab` route-008,
+# each from the original 2026-07-29 09:50 queue-15 run) — the FORGE orchestrator log
+# (`reports/orchestrator_Tarritrix_2026-07-29_09-50-57.log`) shows `compile: PASS` immediately
+# followed by `file_exists: FAIL - Missing: ...` for the exact same paths that were just
+# written, 3 retries each, all with identical false-negative output. This is a FORGE gate
+# defect, not an implementation defect — the original build agent's work was already correct.
+#
+# Fix applied directly to `gates/file_exists.ps1` in this same session (added `-LiteralPath`),
+# not deferred to a queue prompt, since it's shared infrastructure and not project-specific
+# content. The three prompts below reuse queue-15's original target files and spec verbatim —
+# no content changed, only the gate that checks them. If the build agent finds the files already
+# correct (likely, since they already exist), expect a no-op commit (nothing to stage) rather
+# than a rewrite — that is the correct, safe outcome, matching how the Batch 2 rerun behaved
+# earlier this session when it found its own target migration file already in place.
+#
+# PART B — RLS Batch 4 (24 tables): written AND applied, not write-only
+#
+# Departure from Batch 1/2/3 convention, per explicit operator instruction this session: Batch 4
+# is applied via Supabase MCP in the same queue, not left "written, not applied" pending separate
+# authorization. rls-batch4-001's migration SQL below was authored using the same live-check
+# discipline as Batch 2/3 — every DROP POLICY name was pulled directly from a `pg_policies`
+# query against project `jhiplicikizdpdsguimg` run in this session (not guessed, not inferred
+# from naming convention). Six of the 24 tables carry a second policy alongside the operator_id
+# one that must NOT be touched: `cities`/`services`/`signal_leads` each keep a
+# `clients_select_own_<table>` Pattern B policy; `client_evidence_progress` keeps
+# `System can insert/update evidence progress` (qual=true); `conversions` keeps both
+# `anon_can_insert_conversions` (public form INSERT) and `clients_select_own_conversions`.
+# Write-path safety re-verified same as every prior batch: grepped src/ for every non-service-role
+# write to all 24 tables — exactly one match (`src/agents/a-09-conversion-recorder/index.ts`,
+# writing to `conversions`), confirmed to use `getAgentSupabaseClient()` (service role, bypasses
+# RLS). A SELECT-only Pattern A policy is a safe, complete replacement for operator-side read
+# access on all 24 tables, consistent with Batches 1-3.
+#
+# rls-batch4-002 applies the migration live and verifies it — this is a live-database mutation,
+# gated on the build agent actually having Supabase MCP tool access in its own session. Per this
+# session's own flagged recurring gap (STATE_OF_THE_BUILD.md, SCHEMA_REGISTRY.md, 2026-07-29:
+# FORGE-launched sessions have inconsistently lacked Supabase MCP permission), the prompt
+# instructs the same fallback discipline used when that gap was previously hit: if MCP access
+# isn't available, decline to assert success rather than guess, and say so plainly in the commit
+# report and governance update.
+
+governance:
+- BLUEPRINT.md
+- STATE_OF_THE_BUILD.md
+- SCHEMA_REGISTRY.md
+- BEHAVIORAL_CONTRACTS.md
+- AGENTS.md
+project: Tarritrix
+prompts:
+- id: route-004-fix
+  name: Per-Client Health and Page-Metrics API Routes (gate fix, same target files)
+  prompt: |
+    Read MASTER_BUILD_SPEC.md lines 833 and 995 for the /api/clients/[id]/health and /api/clients/[id]/page-metrics requirements. Read SCHEMA_REGISTRY.md for client_penalty_risk_composite VIEW and page_metrics (Table 59) columns before writing. Read src\app\api\operator\clients\[id]\route.ts first as the existing pattern for per-client operator routes.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\clients\[id]\health\route.ts
+
+    GET handler. getOperatorContext() auth, client_id from the URL param verified against operator-visible clients (never trust the param alone — Contract 5). Query client_penalty_risk_composite for this single client_id. Return exactly the view's columns.
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\app\api\clients\[id]\page-metrics\route.ts
+
+    GET handler. Same auth pattern. Query page_metrics for all pages belonging to this client_id. Return per-page metrics as stored (views_total, views_30d, views_7d, views_24h, conversions_total, conversion_rate_30d, performance_tier — verify exact column list against SCHEMA_REGISTRY.md before writing the select).
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit --no-verify -m 'feat: per-client health and page-metrics API routes'; git push origin main. Report commit hash, or report explicitly that there was nothing to commit if both files were already present and correct.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/api/clients/[id]/health/route.ts
+    - src/app/api/clients/[id]/page-metrics/route.ts
+
+- id: route-005-fix
+  name: Per-Client Geo-Grid Evidence and Performance Routes (gate fix, same target files)
+  prompt: |
+    Read MASTER_BUILD_SPEC.md lines 1031 and 1049/1155 for the geo-grid-evidence and geo-grid-performance requirements. Read SCHEMA_REGISTRY.md "service_area_heatmaps extensions (Phase B Section 5)" section in full before writing — this documents photo_count (Layer 1a) and page_id/performance_tier (Layer 1b) as the exact columns to use. Do NOT touch or query anything related to geo_grid_layer_2_rankings — that is a separate, disabled Phase 1.5 feature, out of scope here.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\clients\[id]\geo-grid-evidence\route.ts
+
+    GET handler. getOperatorContext() auth, client_id verified against operator-visible clients. Query service_area_heatmaps for this client_id, return grid_cells with photo_count per cell (Layer 1a evidence density).
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\app\api\clients\[id]\geo-grid-performance\route.ts
+
+    GET handler. Same auth pattern. Query service_area_heatmaps for this client_id, return grid_cells with page_id and performance_tier per cell (Layer 1b page performance). Cells with page_id NULL return performance_tier NULL (no page covers that cell) — do not fabricate a tier for uncovered cells.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit --no-verify -m 'feat: per-client geo-grid evidence and performance API routes (Layer 1a/1b)'; git push origin main. Report commit hash, or report explicitly that there was nothing to commit if both files were already present and correct.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/api/clients/[id]/geo-grid-evidence/route.ts
+    - src/app/api/clients/[id]/geo-grid-performance/route.ts
+
+- id: route-008-fix
+  name: GSC Dashboard Tab (/dashboard/clients/[id]/gsc) (gate fix, same target files)
+  prompt: |
+    Read AGENTS.md A-49 entry's "Operator UI surfaces" list. Read SCHEMA_REGISTRY.md for client_gsc_credentials (94), page_indexation (91), and page_performance_daily (73) columns before writing — in particular confirm the exact value page_performance_daily uses in its source column to identify GSC-sourced rows (do not assume the literal string 'gsc' without checking). Read src\app\api\operator\clients\[id]\gsc\connect\route.ts and \callback\route.ts to understand the existing OAuth connection flow this page will surface status for.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\clients\[id]\gsc\route.ts
+
+    GET handler. getOperatorContext() auth, client_id verified against operator-visible clients. Return: connection status from client_gsc_credentials (connected/not connected — never fabricate a connected state if no row exists), indexed-vs-published page count from page_indexation joined against pages, and performance rows from page_performance_daily filtered to the verified GSC source value.
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\app\dashboard\clients\[id]\gsc\page.tsx
+
+    'use client'. Fetch /api/dashboard/clients/[id]/gsc. Render connection status with a link into the existing connect flow if not connected, indexed-vs-published delta, and a sortable performance table (impressions, clicks, ctr, avg_position per page per query if the row shape supports it, per page if it does not — use whatever the API actually returns, do not invent columns).
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit --no-verify -m 'feat: dashboard GSC intelligence tab for A-49 data'; git push origin main. Report commit hash, or report explicitly that there was nothing to commit if both files were already present and correct.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/dashboard/clients/[id]/gsc/page.tsx
+    - src/app/api/dashboard/clients/[id]/gsc/route.ts
+
+- id: rls-batch4-001
+  name: Write Pattern A RLS Migration — Batch 4 (24 niche/vertical tables)
+  prompt: |
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\supabase\migrations\20260729120000_pattern_a_batch4_niche_vertical.sql
+
+    DROP POLICY IF EXISTS "operators_see_ai_visibility" ON ai_visibility_scores;
+    CREATE POLICY "operator_side_users_can_read_ai_visibility_scores" ON ai_visibility_scores
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "operators_see_client_cities" ON cities;
+    CREATE POLICY "operator_side_users_can_read_cities" ON cities
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "operators_see_client_facts" ON claimed_facts;
+    CREATE POLICY "operator_side_users_can_read_claimed_facts" ON claimed_facts
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "Operators access own client brand signatures" ON client_brand_signatures;
+    CREATE POLICY "operator_side_users_can_read_client_brand_signatures" ON client_brand_signatures
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "Operators see their clients' evidence progress" ON client_evidence_progress;
+    CREATE POLICY "operator_side_users_can_read_client_evidence_progress" ON client_evidence_progress
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "Operators access own client storm subscriptions" ON client_storm_subscriptions;
+    CREATE POLICY "operator_side_users_can_read_client_storm_subscriptions" ON client_storm_subscriptions
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "operators_see_client_conversions" ON conversions;
+    CREATE POLICY "operator_side_users_can_read_conversions" ON conversions
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "operators_see_client_domains" ON domains;
+    CREATE POLICY "operator_side_users_can_read_domains" ON domains
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "operators_see_client_evidence" ON evidence_items;
+    CREATE POLICY "operator_side_users_can_read_evidence_items" ON evidence_items
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "Operators access own client extracted evidence" ON extracted_evidence;
+    CREATE POLICY "operator_side_users_can_read_extracted_evidence" ON extracted_evidence
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "operators_see_client_posts" ON gbp_posts;
+    CREATE POLICY "operator_side_users_can_read_gbp_posts" ON gbp_posts
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "operators_see_gbp_profiles" ON gbp_profiles;
+    CREATE POLICY "operator_side_users_can_read_gbp_profiles" ON gbp_profiles
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "operators_see_client_invoices" ON invoices;
+    CREATE POLICY "operator_side_users_can_read_invoices" ON invoices
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "operators_see_job_linkage" ON job_content_linkage;
+    CREATE POLICY "operator_side_users_can_read_job_content_linkage" ON job_content_linkage
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "operators_see_job_evidence" ON job_evidence;
+    CREATE POLICY "operator_side_users_can_read_job_evidence" ON job_evidence
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "operators_see_client_qa" ON qa_seeds;
+    CREATE POLICY "operator_side_users_can_read_qa_seeds" ON qa_seeds
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "operators_see_retargeting" ON retargeting_events;
+    CREATE POLICY "operator_side_users_can_read_retargeting_events" ON retargeting_events
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "operators_see_client_reviews" ON review_requests;
+    CREATE POLICY "operator_side_users_can_read_review_requests" ON review_requests
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "operators_see_review_drafts" ON review_response_drafts;
+    CREATE POLICY "operator_side_users_can_read_review_response_drafts" ON review_response_drafts
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "operators_see_heatmaps" ON service_area_heatmaps;
+    CREATE POLICY "operator_side_users_can_read_service_area_heatmaps" ON service_area_heatmaps
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "operators_see_client_services" ON services;
+    CREATE POLICY "operator_side_users_can_read_services" ON services
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "operators_see_signal_leads" ON signal_leads;
+    CREATE POLICY "operator_side_users_can_read_signal_leads" ON signal_leads
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "operators_see_client_subscriptions" ON subscriptions;
+    CREATE POLICY "operator_side_users_can_read_subscriptions" ON subscriptions
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    DROP POLICY IF EXISTS "xactimate_isolation" ON xactimate_rewrite_requests;
+    CREATE POLICY "operator_side_users_can_read_xactimate_rewrite_requests" ON xactimate_rewrite_requests
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+
+    Verify Test-Path 'supabase\migrations\20260729120000_pattern_a_batch4_niche_vertical.sql' returns True.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    Do NOT run supabase db push in this prompt — application happens in rls-batch4-002, not here.
+
+    git add supabase/migrations/20260729120000_pattern_a_batch4_niche_vertical.sql; git commit --no-verify -m 'feat: Pattern A RLS migration Batch 4 — 24 niche/vertical tables (written, not yet applied)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - supabase/migrations/20260729120000_pattern_a_batch4_niche_vertical.sql
+
+- id: rls-batch4-002
+  name: Apply Batch 4 RLS Migration via Supabase MCP and Verify Live
+  prompt: |
+    Verify Test-Path 'supabase\migrations\20260729120000_pattern_a_batch4_niche_vertical.sql' returns True. pnpm tsc --noEmit — 0 errors.
+
+    If Supabase MCP tool access is available in this session: apply the migration to project jhiplicikizdpdsguimg via the Supabase MCP apply_migration tool. Then run this exact verification query via the Supabase MCP execute_sql tool:
+
+    SELECT tablename, policyname, cmd, qual FROM pg_policies WHERE schemaname='public' AND tablename IN ('ai_visibility_scores','cities','claimed_facts','client_brand_signatures','client_evidence_progress','client_storm_subscriptions','conversions','domains','evidence_items','extracted_evidence','gbp_posts','gbp_profiles','invoices','job_content_linkage','job_evidence','qa_seeds','retargeting_events','review_requests','review_response_drafts','service_area_heatmaps','services','signal_leads','subscriptions','xactimate_rewrite_requests') AND qual ILIKE '%operator_id%';
+
+    This query must return zero rows. Report the query result verbatim. If it returns any row, the migration did not fully apply — stop, do not update governance docs, and report the exact table(s) still showing operator_id-based policies as a blocker.
+
+    If Supabase MCP tool access is NOT available in this session: do not attempt supabase db push as a substitute, do not guess at the live state, and do not claim the migration was applied. Report explicitly that MCP access was unavailable, matching the same disclosure this session already used for the Batch 2 status correction (STATE_OF_THE_BUILD.md, 2026-07-29 entry) — leave the migration file's status as WRITTEN, NOT YET APPLIED and stop here without touching SCHEMA_REGISTRY.md's Batch 4 status line.
+
+    Only if the verification query above returned zero rows: update SCHEMA_REGISTRY.md's Batch 4 bullet to APPLIED AND VERIFIED, matching the exact phrasing convention used for the Batch 2 correction (state the query was run, state the zero-row result, name the tables that retain a second untouched policy: cities/services/signal_leads keep clients_select_own_<table>, client_evidence_progress keeps "System can insert/update evidence progress", conversions keeps anon_can_insert_conversions and clients_select_own_conversions). Update the outstanding-table count line to reflect Batches 1-4 all migrated (0 remaining).
+
+    Append a new session log entry to STATE_OF_THE_BUILD.md (do not edit or remove any prior entry — Contract 77 append-only) recording the migration application, the verbatim verification query and result, and the corrected outstanding count.
+
+    git add -A; git commit --no-verify -m 'feat: apply Pattern A RLS migration Batch 4 — 24 niche/vertical tables, live-verified zero Pattern C remnants'; git push origin main. Report commit hash, or report explicitly that no commit was made if MCP access was unavailable and nothing changed.
+  gates:
+  - type: compile
