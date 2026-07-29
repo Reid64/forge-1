@@ -47,3 +47,44 @@ queues:
     prompt_count: 2
     estimated_hours: 1
     priority: 6
+  - id: q13-rls-batch3
+    file: queue-13-rls-batch3.yaml
+    description: "Pattern A RLS migration Batch 3 - 15 agent/governance tables (written, not applied)"
+    status: pending
+    depends_on: [q12-rls-batch2]
+    prompt_count: 2
+    estimated_hours: 1
+    priority: 7
+  - id: q14-dashboard-stubs
+    file: queue-14-dashboard-stubs.yaml
+    description: "Replace 5 dashboard stub pages (agents, billing, compliance, pages, settings) with real UI wired to existing backing routes"
+    status: pending
+    depends_on: [q07-dashboard]
+    prompt_count: 6
+    estimated_hours: 3
+    priority: 8
+  - id: q15-missing-routes
+    file: queue-15-missing-routes.yaml
+    description: "Governance-named routes missing on disk with no GBP/backlink dependency - Zone 3 health/recommendations, audit log, profile, per-client health/page-metrics/geo-grid, A-19 field-service webhook receiver, GSC dashboard+portal surfaces"
+    status: running
+    depends_on: [q14-dashboard-stubs, q11-phase2]
+    prompt_count: 10
+    estimated_hours: 5
+    priority: 9
+  - id: q16-due-now-agents
+    file: queue-16-due-now-agents.yaml
+    description: "A-42 Penalty Pattern Detection Engine - sole due-now agent from the 20-agent MISSING reconciliation (Phase 1.5, no unmet external-API dependency); disclosed partial scope on 2 of 7 spec signals"
+    status: pending
+    depends_on: [q10-phase15]
+    prompt_count: 3
+    estimated_hours: 2
+    priority: 10
+  - id: q17-a48-gbp
+    file: queue-17-a48-gbp.yaml
+    description: "A-48 GBP Control Center scaffold only - schema, dormant OAuth routes (guarded on unset Google credentials), dashboard+portal UI rendering Not Connected. Runs ahead of AGENTS.md's own build-prerequisite gate (GBP API approval unmet) under explicit flagged operator instruction - see queue file's own top-of-file conflict flag before running. Never marks A-48 SHIPPED or WIRED."
+    status: held
+    note: "Held pending operator confirmation of GBP API access — see AGENTS.md hard gate."
+    depends_on: [q11-phase2]
+    prompt_count: 6
+    estimated_hours: 3
+    priority: 11
