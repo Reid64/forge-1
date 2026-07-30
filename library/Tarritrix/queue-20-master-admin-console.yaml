@@ -10,17 +10,23 @@
 # (src/lib/auth/permission-matrix.ts and ROLE_HIERARCHY_ARCHITECTURE_SPEC.md Section 3) before
 # any route or component checks it, so scripts/verify-permission-matrix-sync.ts stays green.
 #
-# Company Switcher data reality (verified live against project jhiplicikizdpdsguimg before
-# writing this queue, not assumed): there is no dedicated "is_own_company" column on clients.
-# Two rows match "Tarritrix" by name — `aaaaaaaa-0000-0000-0000-000000000001` (business_name
-# "Tarritrix", status active) and `9a5a8d77-fa1c-4e4e-a073-336b1623f7a6` (business_name
-# "TARRITRIX", status onboarding) — a real duplicate-data anomaly, not something this queue
-# resolves; ma-002 surfaces it as an operator-visible note rather than silently picking one or
-# merging them. E4 Construction & Roofing (`e4ee4ee4-0000-0000-0000-000000000001`) is the only
-# other "My Companies" candidate found, already flagged `is_demo_seed=true` per Contract 36's own
-# canonical-demo-tenant convention. "Architectural Flashing Supply" does NOT exist as a Tarritrix
-# `clients` row at all — it is a separate FORGE project (library/afs-website), unrelated to this
-# codebase's client roster. ma-002 does not fabricate an AFS entry.
+# Company Switcher data reality — UPDATED 2026-07-29, resolved (was previously an open item in
+# this queue): the duplicate-"Tarritrix" anomaly flagged when this queue was first written has
+# since been investigated and corrected directly against the live database. Canonical tenant is
+# `9a5a8d77-fa1c-4e4e-a073-336b1623f7a6` (real address/website/agent activity, now status=active).
+# `aaaaaaaa-0000-0000-0000-000000000001` was a synthetic Contract-73 seed placeholder with zero
+# real data anywhere in the schema (verified across all 61 tables with a client_id FK) — it is
+# now archived (`clients.is_archived=true`, new column added in migration
+# 20260729140000_add_clients_is_archived.sql) and renamed to "Tarritrix (seed placeholder — do
+# not use)", not deleted. Full findings in STATE_OF_THE_BUILD.md's 2026-07-29 "Canonical
+# Tarritrix Tenant Correction" session log and SCHEMA_REGISTRY.md's clients (Table 2) notes.
+# ma-002 below queries the corrected UUID and filters on the new is_archived column — it does not
+# surface a data_quality_note, since there is nothing left to reconcile. E4 Construction &
+# Roofing (`e4ee4ee4-0000-0000-0000-000000000001`) remains the only other "My Companies"
+# candidate, flagged `is_demo_seed=true` per Contract 36's canonical-demo-tenant convention.
+# "Architectural Flashing Supply" does NOT exist as a Tarritrix `clients` row at all — it is a
+# separate FORGE project (library/afs-website), unrelated to this codebase's client roster.
+# ma-002 does not fabricate an AFS entry.
 #
 # Platform Health drift check: does not require a new Vercel API token. VERCEL_GIT_COMMIT_SHA is
 # already auto-injected by Vercel at build time (already used in this codebase per the B3
@@ -83,7 +89,7 @@ prompts:
 
     Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\master-admin\companies\route.ts
 
-    GET handler. getOperatorContext() + hasPermission check (view_master_admin_console). Query clients WHERE id IN ('aaaaaaaa-0000-0000-0000-000000000001', '9a5a8d77-fa1c-4e4e-a073-336b1623f7a6', 'e4ee4ee4-0000-0000-0000-000000000001') for "My Companies", and all other active clients for "Client Portfolio". Include a `data_quality_note` field on the response when both Tarritrix rows are returned, stating plainly that two client rows share the business name "Tarritrix" and have not been reconciled — do not merge or hide either row.
+    GET handler. getOperatorContext() + hasPermission check (view_master_admin_console). Every query in this route must filter WHERE is_archived = false (or is_archived IS NOT TRUE) — clients.is_archived exists specifically to keep non-canonical seed/placeholder rows out of this panel, per the 2026-07-29 canonical-tenant correction in SCHEMA_REGISTRY.md's clients notes. Query clients WHERE id IN ('9a5a8d77-fa1c-4e4e-a073-336b1623f7a6', 'e4ee4ee4-0000-0000-0000-000000000001') AND is_archived = false for "My Companies" (9a5a8d77 is now the canonical Tarritrix tenant — do not use aaaaaaaa-0000-0000-0000-000000000001, which is the archived placeholder and will not pass the is_archived filter anyway), and all other active, non-archived clients for "Client Portfolio". The two-Tarritrix-rows data quality issue is already resolved as of 2026-07-29 — do not add a data_quality_note for it.
 
     Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\dashboard\CompanySwitcher.tsx
 
