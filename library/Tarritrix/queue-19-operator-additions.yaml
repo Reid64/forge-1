@@ -1,0 +1,174 @@
+# QUEUE 19 — Operator Command Center Additions (TARRITRIX_DASHBOARD_SYSTEM_SPEC.md Section 3)
+#
+# Source-file note: TARRITRIX_DASHBOARD_SYSTEM_SPEC.md does not exist anywhere in the Tarritrix
+# git repository (searched: repo tree, git grep across tracked files, docs/ directory — zero
+# matches). Found instead at C:\Users\manag\Downloads\Recent Downloads\TARRITRIX_DASHBOARD_SYSTEM_SPEC.md
+# (v2.0), read in full before authoring this queue. The spec's own header states "Status: DESIGN
+# ONLY — no code, no schema, no build queue until operator sign-off." This queue is written on
+# the basis that the operator's direct instruction to build it constitutes that sign-off. The
+# spec file itself has never been committed to the Tarritrix repo — flagging this as a gap
+# separate from this queue's own scope, not fixed here.
+#
+# Scope note: spec Section 3 lists SIX new modules to layer into the existing shell (Ingestion
+# Health/A-44, Penalty Mitigation Shield, AI & Voice Optimization, Content Pipeline Kanban,
+# Governance & Approvals, Directories & Citations). The operator's instruction for this queue
+# named five, omitting Ingestion Health (A-44). Built exactly the five named — Ingestion Health
+# is not included here and not silently added.
+#
+# Per-module data source verified against SCHEMA_REGISTRY.md and live schema before writing (no
+# new tables required for any of the five — every table below already exists):
+#   - Penalty Mitigation Shield: page_fingerprint_log (A-35), image_metadata_variations (A-34),
+#     pages_http_fingerprint (A-38), page_generation_queue scheduling columns (A-37), plus
+#     pricing_tiers drip caps and today's per-client publish count for the 15/day ceiling.
+#   - AI & Voice Optimization: page_atomic_facts, page_entities, voice_query_patterns (A-25/26/27),
+#     llm_citation_events, llm_citation_summary, citation_displacement_alerts (A-47).
+#   - Content Pipeline Kanban: pages.status, page_validation_results (A-05), page_generation_queue
+#     and page_performance_daily refresh signals (A-11) — per spec's own explicit binding
+#     ("real A-02/A-05/A-11 pipeline states"), not the agent list in the operator's shorthand
+#     instruction, which summarized rather than enumerated every source agent.
+#   - Governance & Approvals: reuses the already-built approvals/policy_events/audit_events
+#     tables and their already-built routes (src/app/api/approvals/route.ts GET+POST,
+#     src/app/api/approvals/[id]/route.ts PATCH, src/app/api/dashboard/governance/route.ts) — no
+#     new mutation route needed, this queue only adds the panel UI and, if the existing GET
+#     doesn't return a full actionable list, extends it.
+#   - Directories & Citations: directory_submissions, directory_registry (A-46).
+#
+# All panels operator/master-visible only per spec Section 1's exclusion table — none of this
+# queue's output may be reachable from any /portal route. Every prompt below is gated on
+# getOperatorContext() + getUserActiveRole()/hasPermission() per Contract 70/71 — no raw role
+# checks.
+
+governance:
+- BLUEPRINT.md
+- STATE_OF_THE_BUILD.md
+- SCHEMA_REGISTRY.md
+- BEHAVIORAL_CONTRACTS.md
+- AGENTS.md
+- docs/design/DASHBOARD_DESIGN_SPEC.md
+project: Tarritrix
+prompts:
+- id: op-add-001
+  name: Penalty Mitigation Shield panel (A-34/A-35/A-37/A-38)
+  prompt: |
+    Read SCHEMA_REGISTRY.md for image_metadata_variations, page_fingerprint_log, pages_http_fingerprint columns, and page_generation_queue's A-37 scheduling extension columns, before writing. Read pricing_tiers for drip cap values per tier.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\penalty-shield\route.ts
+
+    GET handler. getOperatorContext() auth (Contract 70). Query param client_id optional — if present, scope to one client (verified against operator-visible clients); if absent, return aggregate across all operator-visible clients. Per client, compute: current 24h publish count vs the 15/day compliance ceiling (or the client's tier-specific cap from pricing_tiers if tighter), fingerprint diffusion coverage (percentage of published pages with a pages_http_fingerprint row less than 30 days old), component/schema variation coverage (percentage of published pages with an image_metadata_variations and a page_fingerprint_log row). Return per-client rows plus an aggregate summary. No fabricated fields — every number derived from a real query.
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\dashboard\PenaltyMitigationShield.tsx
+
+    'use client'. Fetch /api/dashboard/penalty-shield. This is the platform's most visually distinct operator panel per the design spec — not a plain metric card row. Render per-client: cadence-vs-ceiling as a progress bar (red if at or over ceiling), fingerprint diffusion coverage and variation coverage as two more progress indicators, aggregate summary row at top when no client selected. Background #1c2030, cards #242938, accent #06b6d4, status colors green/amber/red consistent with existing DASHBOARD_DESIGN_SPEC.md conventions. Skeleton loader, error state with retry. TypeScript strict, no any. Default export PenaltyMitigationShield.
+
+    Verify Test-Path for both files returns True. pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit --no-verify -m 'feat: Penalty Mitigation Shield operator panel (A-34/35/37/38)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/api/dashboard/penalty-shield/route.ts
+    - src/components/dashboard/PenaltyMitigationShield.tsx
+
+- id: op-add-002
+  name: AI & Voice Optimization panel (A-25/A-27/A-47)
+  prompt: |
+    Read SCHEMA_REGISTRY.md for page_atomic_facts, page_entities, voice_query_patterns, llm_citation_events, llm_citation_summary, citation_displacement_alerts columns before writing.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\ai-voice-optimization\route.ts
+
+    GET handler. getOperatorContext() auth. Optional client_id query param, same aggregate/scoped pattern as the penalty-shield route. Return: AEO restructuring coverage (percentage of published pages with a page_atomic_facts row), voice-query optimization completeness (percentage of published pages with a voice_query_patterns row targeting them), and LLM citation trend (rolling count from llm_citation_summary over the last 30 days plus any citation_displacement_alerts in that window).
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\dashboard\AIVoiceOptimizationPanel.tsx
+
+    'use client'. Fetch /api/dashboard/ai-voice-optimization. Two coverage progress indicators (AEO, voice) plus a citation trend line/sparkline and a displacement-alert list (competitor domain, query, detected_at). Same visual language as PenaltyMitigationShield (background #1c2030, cards #242938, accent #06b6d4). Skeleton loader, error state. TypeScript strict, no any. Default export AIVoiceOptimizationPanel.
+
+    Verify Test-Path for both files returns True. pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit --no-verify -m 'feat: AI and Voice Optimization operator panel (A-25/27/47)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/api/dashboard/ai-voice-optimization/route.ts
+    - src/components/dashboard/AIVoiceOptimizationPanel.tsx
+
+- id: op-add-003
+  name: Content Pipeline Kanban (A-02/A-05/A-11)
+  prompt: |
+    Read SCHEMA_REGISTRY.md for pages.status enum values, page_validation_results columns, and page_generation_queue columns before writing.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\content-pipeline\route.ts
+
+    GET handler. getOperatorContext() auth. Optional client_id query param, same pattern as prior panels. Map real pages.status values into five Kanban columns — Plan (queued in page_generation_queue, not yet generated), In Progress (pages.status indicating draft/generating), Review (pages awaiting A-05 validation or flagged), Scheduled (validated and queued for drip publish per A-37 scheduling columns), Published (pages.status = 'published'). Do not invent a status value that doesn't exist in the enum — read the actual enum first and map to it exactly.
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\dashboard\ContentPipelineKanban.tsx
+
+    'use client'. Fetch /api/dashboard/content-pipeline. Five-column Kanban board, card per page showing title, client name (in aggregate view), city/service, days in current column. Filterable to "all clients" or the currently-selected client via the existing ClientContext. Same visual language as the other new panels. Skeleton loader, error state. TypeScript strict, no any. Default export ContentPipelineKanban.
+
+    Verify Test-Path for both files returns True. pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit --no-verify -m 'feat: Content Pipeline Kanban operator panel (A-02/05/11)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/api/dashboard/content-pipeline/route.ts
+    - src/components/dashboard/ContentPipelineKanban.tsx
+
+- id: op-add-004
+  name: Governance and Approvals panel (SPDI)
+  prompt: |
+    Read src\app\api\approvals\route.ts and src\app\api\approvals\[id]\route.ts in full — these already provide GET (list) and POST (create)/PATCH (approve or reject) for the approvals table. Read src\app\api\dashboard\governance\route.ts in full — this already provides pending_approvals/auto_suspended counts. Do NOT duplicate either route. If the existing GET on /api/approvals does not return enough per-item detail for an actionable list (risk_class, evidence-gate hold reason, policy-enforcer flag detail), extend that existing route rather than creating a new one — read it first to determine whether extension is actually needed before touching it.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\components\dashboard\GovernanceApprovalsPanel.tsx
+
+    'use client'. Fetch /api/approvals for the actionable list, /api/dashboard/governance for the summary counts. Render as an actionable list: item description, risk_class, client_id, Approve/Reject buttons calling PATCH /api/approvals/[id] (gated to senior_admin/master_admin via getUserActiveRole/hasPermission client-side check before rendering the buttons — do not rely on the API's own gate alone for UX, but the API's gate is the actual enforcement). Optimistic UI: remove item from list on action, restore on error. Same visual language as the other new panels. TypeScript strict, no any. Default export GovernanceApprovalsPanel.
+
+    Verify Test-Path 'src\components\dashboard\GovernanceApprovalsPanel.tsx' returns True. pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit --no-verify -m 'feat: Governance and Approvals operator panel wired to existing SPDI routes'; git push origin main. Report commit hash, and report explicitly whether /api/approvals needed extending or was used as-is.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/components/dashboard/GovernanceApprovalsPanel.tsx
+
+- id: op-add-005
+  name: Directories and Citations panel (A-46)
+  prompt: |
+    Read SCHEMA_REGISTRY.md for directory_submissions and directory_registry columns before writing. Read AGENTS.md A-46 entry for the tier classification (A/B/C) and Track A/B/C automation model.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\directories\route.ts
+
+    GET handler. getOperatorContext() auth. Optional client_id query param, same pattern as prior panels. Return submission status grouped by directory tier (A/B/C) and by status (pending/completed/failed), joined against directory_registry for directory names.
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\dashboard\DirectoriesCitationsPanel.tsx
+
+    'use client'. Fetch /api/dashboard/directories. Grouped table or card list by tier, status badges (pending amber, completed green, failed red). Same visual language as the other new panels. Skeleton loader, error state. TypeScript strict, no any. Default export DirectoriesCitationsPanel.
+
+    Verify Test-Path for both files returns True. pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit --no-verify -m 'feat: Directories and Citations operator panel (A-46)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/api/dashboard/directories/route.ts
+    - src/components/dashboard/DirectoriesCitationsPanel.tsx
+
+- id: op-add-006
+  name: Layer all five panels into the existing operator dashboard shell
+  prompt: |
+    Read src\app\dashboard\page.tsx and src\app\dashboard\layout.tsx in full before writing — the existing shell (PlatformPulseBar, RiskCommandPanel, PriorityCommandSurface, SplitView, ActivityStream, IntelligenceRow) stays exactly as-is per the design spec's own instruction ("extends that IA," does not replace it). Do not remove, reorder above, or restyle any existing component — MonthlyGrowthTimeline is not touched by this queue and is not part of this route regardless.
+
+    Update FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\dashboard\page.tsx
+
+    Add the five new components (PenaltyMitigationShield, AIVoiceOptimizationPanel, ContentPipelineKanban, GovernanceApprovalsPanel, DirectoriesCitationsPanel) below the existing IA, each respecting the existing per-client/aggregate toggle via ClientContext the same way SplitView already does. Group them under a labeled new section rather than interleaving with the existing rows.
+
+    pnpm tsc --noEmit — 0 errors. pnpm run build — must succeed and show /dashboard in the route list.
+
+    git add -A; git commit --no-verify -m 'feat: layer Penalty Mitigation Shield, AI/Voice Optimization, Content Pipeline Kanban, Governance and Approvals, Directories and Citations into operator dashboard shell'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: build

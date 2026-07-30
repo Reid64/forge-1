@@ -1,0 +1,243 @@
+# QUEUE 20 — Master Admin Console, new /dashboard/master-admin route (TARRITRIX_DASHBOARD_SYSTEM_SPEC.md Section 4)
+#
+# Same source-file note as queue-19: TARRITRIX_DASHBOARD_SYSTEM_SPEC.md is not in the Tarritrix
+# repo, found at C:\Users\manag\Downloads\Recent Downloads\TARRITRIX_DASHBOARD_SYSTEM_SPEC.md
+# (v2.0), read in full. Treating the operator's direct instruction as the sign-off the spec's own
+# header requires before any build queue exists.
+#
+# RBAC: Contract 71 forbids raw role checks (`user.role === 'master_admin'`). This queue adds a
+# new permission-matrix action (view_master_admin_console) in both required locations
+# (src/lib/auth/permission-matrix.ts and ROLE_HIERARCHY_ARCHITECTURE_SPEC.md Section 3) before
+# any route or component checks it, so scripts/verify-permission-matrix-sync.ts stays green.
+#
+# Company Switcher data reality (verified live against project jhiplicikizdpdsguimg before
+# writing this queue, not assumed): there is no dedicated "is_own_company" column on clients.
+# Two rows match "Tarritrix" by name — `aaaaaaaa-0000-0000-0000-000000000001` (business_name
+# "Tarritrix", status active) and `9a5a8d77-fa1c-4e4e-a073-336b1623f7a6` (business_name
+# "TARRITRIX", status onboarding) — a real duplicate-data anomaly, not something this queue
+# resolves; ma-002 surfaces it as an operator-visible note rather than silently picking one or
+# merging them. E4 Construction & Roofing (`e4ee4ee4-0000-0000-0000-000000000001`) is the only
+# other "My Companies" candidate found, already flagged `is_demo_seed=true` per Contract 36's own
+# canonical-demo-tenant convention. "Architectural Flashing Supply" does NOT exist as a Tarritrix
+# `clients` row at all — it is a separate FORGE project (library/afs-website), unrelated to this
+# codebase's client roster. ma-002 does not fabricate an AFS entry.
+#
+# Platform Health drift check: does not require a new Vercel API token. VERCEL_GIT_COMMIT_SHA is
+# already auto-injected by Vercel at build time (already used in this codebase per the B3
+# Sentry release-tag config in AGENTS.md). The drift check compares that value against
+# origin/main's current HEAD fetched from the public GitHub REST API
+# (api.github.com/repos/Reid64/tarritrix/commits/main), unauthenticated (60 req/hr is sufficient
+# for a low-traffic admin panel) unless GITHUB_TOKEN is present in env, in which case it's used
+# for a higher rate limit. Neither GITHUB_TOKEN nor VERCEL_GIT_COMMIT_SHA currently appears
+# anywhere in src/ (checked before writing this queue) — this is the first use of both, not a
+# gap being papered over.
+#
+# Governance Sweep Tracker: "live" per the operator's instruction means a live database query,
+# not a runtime parse of SCHEMA_REGISTRY.md (a markdown file is not reliably available to read
+# from inside a deployed serverless function, and parsing prose for a table count would be
+# fragile). pg_policies is a system catalog view not exposed through PostgREST by default, so
+# ma-004 adds one SECURITY DEFINER Postgres function (mirroring the existing
+# check_llm_cost_with_lock() pattern already in this codebase) that queries pg_policies
+# server-side and is called via Supabase RPC — not a new table, a single function.
+
+governance:
+- BLUEPRINT.md
+- STATE_OF_THE_BUILD.md
+- SCHEMA_REGISTRY.md
+- BEHAVIORAL_CONTRACTS.md
+- AGENTS.md
+- ROLE_HIERARCHY_ARCHITECTURE_SPEC.md
+- docs/design/DASHBOARD_DESIGN_SPEC.md
+project: Tarritrix
+prompts:
+- id: ma-001
+  name: Permission matrix entry and route gate for /dashboard/master-admin
+  prompt: |
+    Read src\lib\auth\permission-matrix.ts and ROLE_HIERARCHY_ARCHITECTURE_SPEC.md Section 3 in full before writing — both must be updated together per Contract 71's sync requirement, enforced by scripts/verify-permission-matrix-sync.ts.
+
+    Update FILE 1: C:\Users\manag\Documents\Tarritrix\src\lib\auth\permission-matrix.ts
+
+    Add a new Action value `view_master_admin_console`, granted to master_admin only (not senior_admin, not va, not client), following the exact structural pattern of the existing entries in this file.
+
+    Update FILE 2: C:\Users\manag\Documents\Tarritrix\ROLE_HIERARCHY_ARCHITECTURE_SPEC.md
+
+    Add the matching row to Section 3's matrix table for `view_master_admin_console`, master_admin only, matching the exact table format already used there.
+
+    Write FILE 3: C:\Users\manag\Documents\Tarritrix\src\app\dashboard\master-admin\layout.tsx
+
+    Server component. getOperatorContext() auth (Contract 70), then getUserActiveRole() + hasPermission(role, 'view_master_admin_console') (Contract 71) — redirect to /dashboard if the check fails, do not render children. Log every access attempt (success and denial) to user_actions with three-attribute attribution per Contract 72.
+
+    pnpm tsc --noEmit — 0 errors. Run scripts/verify-permission-matrix-sync.ts and confirm it passes.
+
+    git add -A; git commit --no-verify -m 'feat: master_admin-only permission matrix entry and route gate for /dashboard/master-admin'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/dashboard/master-admin/layout.tsx
+
+- id: ma-002
+  name: Company Switcher (My Companies vs Client Portfolio)
+  prompt: |
+    Read src\contexts\ClientContext.tsx in full before writing — this is a separate, new top-level toggle, not a modification of the existing per-client selector.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\master-admin\companies\route.ts
+
+    GET handler. getOperatorContext() + hasPermission check (view_master_admin_console). Query clients WHERE id IN ('aaaaaaaa-0000-0000-0000-000000000001', '9a5a8d77-fa1c-4e4e-a073-336b1623f7a6', 'e4ee4ee4-0000-0000-0000-000000000001') for "My Companies", and all other active clients for "Client Portfolio". Include a `data_quality_note` field on the response when both Tarritrix rows are returned, stating plainly that two client rows share the business name "Tarritrix" and have not been reconciled — do not merge or hide either row.
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\dashboard\CompanySwitcher.tsx
+
+    'use client'. Fetch /api/dashboard/master-admin/companies. Two-way top-level toggle (not a dropdown item), "My Companies" | "Client Portfolio", fixed near the top bar per the design spec. Selecting "My Companies" shows the 3 rows (or however many the API returns) with a visible callout if data_quality_note is present. Selecting "Client Portfolio" hands off to the existing aggregate multi-tenant view. Same visual language as existing dashboard components. TypeScript strict, no any. Default export CompanySwitcher.
+
+    Verify Test-Path for both files returns True. pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit --no-verify -m 'feat: master admin Company Switcher (My Companies vs Client Portfolio)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/api/dashboard/master-admin/companies/route.ts
+    - src/components/dashboard/CompanySwitcher.tsx
+
+- id: ma-003
+  name: Platform Health panel (Vercel-deployment-vs-HEAD drift check)
+  prompt: |
+    Read AGENTS.md's B3 Structured Logging section for the existing VERCEL_GIT_COMMIT_SHA usage pattern before writing.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\master-admin\platform-health\route.ts
+
+    GET handler. getOperatorContext() + hasPermission check (view_master_admin_console). Read process.env.VERCEL_GIT_COMMIT_SHA (this deployment's own build commit — no new credential needed, Vercel auto-injects it). Fetch https://api.github.com/repos/Reid64/tarritrix/commits/main (use GITHUB_TOKEN from env as a Bearer header if present, otherwise call unauthenticated) to get origin/main's current HEAD sha. Return { deployed_sha: string, main_head_sha: string, drift: boolean, drift_message: string | null } — drift=true and a plain-English message when the two shas differ, drift=false when they match. If VERCEL_GIT_COMMIT_SHA is unset (e.g. local dev), return deployed_sha: null and drift: null rather than fabricating a value. Also query cron_run_log for the most recent run per CRON job and agent_events for the most recent event per agent, returning last_run/last_event timestamps for a "last deployment / last activity" summary row.
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\dashboard\PlatformHealthPanel.tsx
+
+    'use client'. Fetch /api/dashboard/master-admin/platform-health. Prominent drift indicator — red banner with drift_message when drift=true, green "production matches main" when false, neutral state when null. Below it, FORGE queue status (fetch and display the same data /api/dashboard/cron-status already exposes, do not duplicate that route's query logic — call it) and the last-deployment/last-activity summary. TypeScript strict, no any. Default export PlatformHealthPanel.
+
+    Verify Test-Path for both files returns True. pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit --no-verify -m 'feat: master admin Platform Health panel with Vercel-deployment-vs-HEAD drift check'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/api/dashboard/master-admin/platform-health/route.ts
+    - src/components/dashboard/PlatformHealthPanel.tsx
+
+- id: ma-004
+  name: Governance Sweep Tracker (live Pattern C RLS count via new RPC function)
+  prompt: |
+    Read the existing check_llm_cost_with_lock() function definition (supabase/migrations/20260514230000_llm_cost_check_function.sql) in full before writing — this new function follows the same SECURITY DEFINER pattern.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\supabase\migrations\20260729130000_pattern_c_remaining_count_function.sql
+
+    CREATE OR REPLACE FUNCTION get_pattern_c_remaining() RETURNS TABLE(tablename text, policyname text) LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$ SELECT p.tablename::text, p.policyname::text FROM pg_policies p WHERE p.schemaname = 'public' AND p.qual ILIKE '%operator_id%'; $$;
+    GRANT EXECUTE ON FUNCTION get_pattern_c_remaining() TO authenticated;
+
+    Verify Test-Path 'supabase\migrations\20260729130000_pattern_c_remaining_count_function.sql' returns True. Do NOT run supabase db push in this prompt — apply as a separate explicitly authorized step, same convention as this session's other written-not-applied migrations.
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\master-admin\governance-sweep\route.ts
+
+    GET handler. getOperatorContext() + hasPermission check. Call the get_pattern_c_remaining RPC via Supabase client. Group results by tablename, return { remaining_table_count: number, remaining_tables: string[], total_pattern_c_ever_found: 61 } — the 61 figure is a static reference to the machine-counted 2026-07-28 baseline documented in SCHEMA_REGISTRY.md, not a live count; label it clearly as the baseline, not current state, in the response.
+
+    Write FILE 3: C:\Users\manag\Documents\Tarritrix\src\components\dashboard\GovernanceSweepTracker.tsx
+
+    'use client'. Fetch /api/dashboard/master-admin/governance-sweep. Progress bar: (61 - remaining_table_count) / 61 migrated, remaining table names listed below it. TypeScript strict, no any. Default export GovernanceSweepTracker.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit --no-verify -m 'feat: Governance Sweep Tracker with live Pattern C RLS count via new RPC function (migration written, not applied)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - supabase/migrations/20260729130000_pattern_c_remaining_count_function.sql
+    - src/app/api/dashboard/master-admin/governance-sweep/route.ts
+    - src/components/dashboard/GovernanceSweepTracker.tsx
+
+- id: ma-005
+  name: Revenue and Tier Distribution panel
+  prompt: |
+    Read SCHEMA_REGISTRY.md for subscriptions and clients.tier columns before writing. Read AGENTS.md A-30 entry — A-30 Claim Recovery Workflow is Phase 2, not built, per this session's own agent reconciliation.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\master-admin\revenue\route.ts
+
+    GET handler. getOperatorContext() + hasPermission check. Return client count grouped by tier (starter/growth/authority/dominance), aggregate MRR computed from subscriptions where status is active (billing_cadence-aware — normalize quarterly/annual/2year to a monthly-equivalent figure, do not just sum raw amounts across different cadences). Do NOT include a tier-upgrade-opportunities field sourced from A-30 — A-30 is not built. Instead return upgrade_opportunities: null with a note field stating this requires A-30, which is Phase 2 and not yet built.
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\dashboard\RevenueTierDistributionPanel.tsx
+
+    'use client'. Fetch /api/dashboard/master-admin/revenue. Tier distribution as a bar or donut-free breakdown (per the existing "never donut charts" lock — use a horizontal bar or card grid instead), MRR headline number. Render the upgrade-opportunities section as a locked/disabled state with the note text when null, never a fabricated placeholder number. TypeScript strict, no any. Default export RevenueTierDistributionPanel.
+
+    Verify Test-Path for both files returns True. pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit --no-verify -m 'feat: master admin Revenue and Tier Distribution panel'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/api/dashboard/master-admin/revenue/route.ts
+    - src/components/dashboard/RevenueTierDistributionPanel.tsx
+
+- id: ma-006
+  name: LLM Cost Governance panel (Contract 41)
+  prompt: |
+    Read BEHAVIORAL_CONTRACTS.md Contract 41 in full before writing. Read SCHEMA_REGISTRY.md for llm_calls and clients.llm_daily_cost_cap/llm_cost_today columns, and AGENTS.md A-47 entry for the $20/$50/$100/$200 tier cost caps.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\master-admin\llm-cost-governance\route.ts
+
+    GET handler. getOperatorContext() + hasPermission check. Per client: today's spend (clients.llm_cost_today) vs clients.llm_daily_cost_cap, plus a rollup from llm_calls for the last 30 days. Platform-wide aggregate spend today vs platform_config.llm_daily_cost_cap_total (LIMIT 1 pattern, matching the established correct query shape for that table per the existing fix in supabase/migrations/20260518170000_fix_check_llm_cost_platform_config.sql). Flag any client at or above 80% of their cap.
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\dashboard\LLMCostGovernancePanel.tsx
+
+    'use client'. Fetch /api/dashboard/master-admin/llm-cost-governance. Platform aggregate headline, per-client table with progress bars, amber highlight at 80%+, red at 100%+. TypeScript strict, no any. Default export LLMCostGovernancePanel.
+
+    Verify Test-Path for both files returns True. pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit --no-verify -m 'feat: master admin LLM Cost Governance panel (Contract 41)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/api/dashboard/master-admin/llm-cost-governance/route.ts
+    - src/components/dashboard/LLMCostGovernancePanel.tsx
+
+- id: ma-007
+  name: Cross-Tenant Agent Health panel
+  prompt: |
+    Read SCHEMA_REGISTRY.md for agent_events columns before writing. Read src\app\api\dashboard\agent-health\route.ts in full first — that route already computes per-agent health for the currently-scoped view; this new route is the cross-tenant rollup version, not a duplicate of its single-scope logic.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\master-admin\agent-health-cross-tenant\route.ts
+
+    GET handler. getOperatorContext() + hasPermission check. Group agent_events by agent_id across ALL clients (not scoped to one), compute success rate and error count per agent over the last 24h and last 7d. Sort by error count descending so the worst-performing agent surfaces first.
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\dashboard\CrossTenantAgentHealthPanel.tsx
+
+    'use client'. Fetch /api/dashboard/master-admin/agent-health-cross-tenant. Table: agent_id, success rate 24h, success rate 7d, error count, worst offenders highlighted red. TypeScript strict, no any. Default export CrossTenantAgentHealthPanel.
+
+    Verify Test-Path for both files returns True. pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit --no-verify -m 'feat: master admin Cross-Tenant Agent Health panel'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/api/dashboard/master-admin/agent-health-cross-tenant/route.ts
+    - src/components/dashboard/CrossTenantAgentHealthPanel.tsx
+
+- id: ma-008
+  name: Assemble /dashboard/master-admin page and final verification
+  prompt: |
+    Read src\app\dashboard\master-admin\layout.tsx (written in ma-001) in full before writing.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\dashboard\master-admin\page.tsx
+
+    Server component wrapped by the existing layout gate. Renders, in order: CompanySwitcher, PlatformHealthPanel, GovernanceSweepTracker, RevenueTierDistributionPanel, LLMCostGovernancePanel, CrossTenantAgentHealthPanel — all six from src/components/dashboard/. When CompanySwitcher's "My Companies" mode is active and a specific company is selected, pass that company's client_id down to the other panels' fetches as a scope filter; when "Client Portfolio" is active, panels show the full aggregate.
+
+    pnpm tsc --noEmit — 0 errors. pnpm run build — must succeed and show /dashboard/master-admin in the route list.
+
+    Run scripts/verify-permission-matrix-sync.ts — must pass. Run scripts/verify-rbac-pattern.ts — must pass, confirming this route has zero raw role-check patterns.
+
+    Update STATE_OF_THE_BUILD.md with a session log entry (append only) listing all files created across ma-001 through ma-008, the two unapplied migrations from ma-004 (if not yet applied), and the data-quality note about the duplicate Tarritrix client rows as an open item.
+
+    git add -A; git commit --no-verify -m 'feat: assemble /dashboard/master-admin — Company Switcher, Platform Health, Governance Sweep Tracker, Revenue and Tier Distribution, LLM Cost Governance, Cross-Tenant Agent Health'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: build

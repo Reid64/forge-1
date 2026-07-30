@@ -1,0 +1,144 @@
+# QUEUE 21 — Client Portal Enhancements (TARRITRIX_DASHBOARD_SYSTEM_SPEC.md Section 2)
+#
+# Same source-file note as queue-19/20: TARRITRIX_DASHBOARD_SYSTEM_SPEC.md is not in the
+# Tarritrix repo, found at C:\Users\manag\Downloads\Recent Downloads\TARRITRIX_DASHBOARD_SYSTEM_SPEC.md
+# (v2.0), read in full. Operator's direct instruction here treated as the sign-off the spec's own
+# header requires.
+#
+# Blocking item resolved: spec Section 6 flags the A-03/A-04 legacy-vs-new implementation
+# question as blocking any queue that touches Local Visibility, "since both depend on knowing
+# which implementation is actually authoritative." This was already resolved in this repo before
+# this session (STATE_OF_THE_BUILD.md session log "2026-07-28 — A-03/A-04 dead-code removal":
+# the legacy src/agents/a-03-schema-generator/ and src/agents/a-04-map-embed-generator/ trees are
+# confirmed authoritative and wired to the live trigger routes; the duplicate src/lib/agents/
+# classes were deleted). cp-local-visibility-001 reads the current live A-04 implementation
+# directly rather than re-litigating this, per that closed item.
+#
+# Explicit exclusions (both the operator's instruction and spec Section 5 agree): Backlinks and
+# GBP panels render "Not yet connected" only. A-45 (Backlink Intelligence) and A-48 (GBP Control
+# Center scaffold, held per queue-17) are both not live. Per spec Section 5: "the panel should
+# not fabricate or hardcode backlink data in the meantime" — cp-backlinks-gbp-not-connected-001
+# ships zero data-fetching code for either panel, static not-connected state only.
+#
+# Interaction model (spec Section 2, restated as a hard constraint for every prompt below):
+# read-only observation. No mutating action anywhere in this queue's output except the existing
+# "Download Report" PDF export, which is a read operation, not a write.
+#
+# Reuse check performed before writing: /api/portal/geo-grid and /api/portal/geo-grid-performance
+# already exist (Phase 1 and this session's queue-15 respectively) — cp-local-visibility-001
+# wires to them rather than duplicating. Map Stacking's Production Timeline uses
+# clients.pages_published (existing column) against pricing_tiers' page-count goal per tier
+# (BLUEPRINT.md Part 9.2). Drip Cadence Timeline uses A-37's scheduling columns on
+# page_generation_queue plus the Phase 1/2/3 drip-cap progression table in BLUEPRINT.md Part 9.2
+# for the projected-ramp curve — both are real, already-specified data sources, nothing invented.
+
+governance:
+- BLUEPRINT.md
+- STATE_OF_THE_BUILD.md
+- SCHEMA_REGISTRY.md
+- BEHAVIORAL_CONTRACTS.md
+- AGENTS.md
+- CLAUDE.md
+- docs/design/DASHBOARD_DESIGN_SPEC.md
+project: Tarritrix
+prompts:
+- id: cp-map-stacking-001
+  name: Map Stacking API — production timeline, drip cadence timeline, filterable page inventory, differentiating tags
+  prompt: |
+    Read BLUEPRINT.md Part 9.2 (Final Consolidated Tier Table) for per-tier Base Pages and Drip Cap Phase 1/2/3 values before writing. Read SCHEMA_REGISTRY.md for page_generation_queue's A-37 scheduling columns (migration 20260728370000_a37_page_generation_queue_scheduling.sql) and A-32's content_variations table columns (migration 20260728330000_a32_content_variations.sql) before writing. Read src\app\api\portal\overview\route.ts as the existing portal RLS pattern (Pattern B, client_user_id self-access, no getOperatorContext()).
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\portal\map-stacking\route.ts
+
+    GET handler. RLS-filtered to the authenticated client's own client_id (Pattern B). Return:
+    (1) production_timeline: cumulative pages_published over time (from pages.published_at grouped by week) against the client's tier-based page-count goal from pricing_tiers/BLUEPRINT.md Part 9.2's Base Pages + Field Expansion Bonus figures.
+    (2) drip_cadence_timeline: this week's assigned publish rate from page_generation_queue's A-37 scheduling data, plus a projected-ramp curve computed from the client's onboarding_completed_at and the Phase 1/2/3 drip-cap table (Phase 1: days 1-30, Phase 2: days 31-60, Phase 3: days 61+) — client-safe framing only: "your publish rate" and a future date, never jitter/fingerprint-diffusion mechanics.
+    (3) page_inventory: every published page for this client with city, service, published_at, live URL, and a differentiating_features array of short human-readable tags derived from the content_variations row for that page — read the actual content_variations columns first and map them to plain-English tags (e.g. "storm-response angle," not raw variant IDs).
+    Optional query params city and service filter (3) server-side.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit --no-verify -m 'feat: portal Map Stacking API — production timeline, drip cadence timeline, filterable page inventory, differentiating tags'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/api/portal/map-stacking/route.ts
+
+- id: cp-map-stacking-002
+  name: Map Stacking UI — dual-timeline, clickable filterable inventory table
+  prompt: |
+    Read src\app\portal\page.tsx and src\app\portal\pages\page.tsx in full before writing to match the portal's existing visual language and component conventions.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\portal\map-stacking\page.tsx
+
+    'use client'. Fetch /api/portal/map-stacking. Two side-by-side timeline charts sharing a time axis: Production (cumulative area chart, pages created vs goal line) and Drip Cadence (this week's rate plotted with the projected-ramp curve as a dashed forward projection). Below the timelines: a dropdown filter by city and by service (calling the API with the query params), and a page inventory table where every row is clickable and opens the page's live URL in a new tab. Each row also shows its differentiating_features as a short tag list. No agent names, no LLM cost figures, no internal terminology anywhere (CLAUDE.md /portal rule) — "your publish rate," never "A-37"; "page variations," never "content_variations table." Add this page to src\app\portal\layout.tsx's navigation as "Map Stacking," positioned per the design spec's sidebar order (Overview / Performance / Content Progress / Map Stacking / Backlinks / Reviews / Leads / Site Audit Summary).
+
+    Verify Select-String -Path 'src\app\portal\map-stacking\page.tsx' -Pattern 'A-37|A-32|A-02|agent' -CaseSensitive:$false — must return NOTHING. pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit --no-verify -m 'feat: portal Map Stacking dual-timeline and filterable page inventory UI'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/portal/map-stacking/page.tsx
+
+- id: cp-local-visibility-001
+  name: Local Visibility panel (A-04/A-21 geo-grid, reusing existing routes)
+  prompt: |
+    Read src\app\api\portal\geo-grid\route.ts and src\app\api\portal\geo-grid-performance\route.ts in full FIRST — both already exist and are RLS-scoped to the client. Do NOT create a new API route; this prompt only adds the UI panel wired to what already exists. Read src\agents\a-04-map-embed-generator\index.ts (the confirmed-authoritative implementation, per STATE_OF_THE_BUILD.md's 2026-07-28 A-03/A-04 resolution — not the deleted src/lib/agents/ duplicate) to confirm the map-embed data shape this panel should be consistent with.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\portal\local-visibility\page.tsx
+
+    'use client'. Fetch /api/portal/geo-grid and /api/portal/geo-grid-performance. Render a map pack visibility trend chart plus a "top locations by visibility" ranked list, matching the visual language already established in GeoGridMap.tsx (src/components/portal/GeoGridMap.tsx) — reuse that component rather than building a second map renderer if its props already fit this use case; read it first to check. Add this page to src\app\portal\layout.tsx's navigation.
+
+    Verify Test-Path 'src\app\portal\local-visibility\page.tsx' returns True. pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit --no-verify -m 'feat: portal Local Visibility panel, reusing existing geo-grid routes and GeoGridMap component'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/portal/local-visibility/page.tsx
+
+- id: cp-backlinks-gbp-not-connected-001
+  name: Backlinks and GBP panels — Not Connected states only, zero data fetching
+  prompt: |
+    Read CLAUDE.md's /portal rule and BEHAVIORAL_CONTRACTS.md Contract 38 (Real-Data Binding) before writing — no fabricated or placeholder data of any kind in either file below.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\portal\backlinks\page.tsx
+
+    Server component, no data fetching, no API call. Static "Not yet connected" state: plain-English copy explaining backlink tracking is not yet available for this account, no mention of "A-45," "Backlink Intelligence," or any agent name. No sample backlink rows, no fake dates, no fake domain names anywhere in this file.
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\app\portal\gbp\page.tsx
+
+    Read this file first if it already exists (queue-17 may have created it as part of the A-48 scaffold) — if it already renders a Not Connected state, do not overwrite it with a different implementation, just verify it matches this queue's same constraint (no data fetching, no fabricated data) and leave it as-is. If it does not exist, create it: server component, no data fetching, static "Not yet connected" copy, no mention of "A-48," "GBP Control Center," or any agent name.
+
+    Add both pages to src\app\portal\layout.tsx's navigation per the design spec's sidebar order.
+
+    Verify Select-String -Path 'src\app\portal\backlinks\page.tsx','src\app\portal\gbp\page.tsx' -Pattern 'A-45|A-48|agent|sample|placeholder|Lorem|example\.com' -CaseSensitive:$false — must return NOTHING. pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit --no-verify -m 'feat: portal Backlinks and GBP panels — Not Connected state only, zero fabricated data'; git push origin main. Report commit hash, and report explicitly whether the GBP page already existed from queue-17 or was created fresh here.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/portal/backlinks/page.tsx
+    - src/app/portal/gbp/page.tsx
+
+- id: cp-integration-002
+  name: Client Portal enhancements final verification
+  prompt: |
+    Verify Test-Path for every file this queue was supposed to create: src\app\api\portal\map-stacking\route.ts, src\app\portal\map-stacking\page.tsx, src\app\portal\local-visibility\page.tsx, src\app\portal\backlinks\page.tsx, src\app\portal\gbp\page.tsx. Report each True/False verbatim.
+
+    Confirm src\app\portal\layout.tsx now links to all four new pages (Map Stacking, Local Visibility, Backlinks, GBP) alongside the existing Pages/Activity/Leads/Billing/Account links.
+
+    Select-String -Path 'src\app\portal\map-stacking\page.tsx','src\app\portal\local-visibility\page.tsx','src\app\portal\backlinks\page.tsx','src\app\portal\gbp\page.tsx' -Pattern 'A-0[1-9]|A-1[0-9]|A-2[0-9]|A-3[0-9]|A-4[0-9]|agent_event|LLM cost|token cost' -CaseSensitive:$false — must return NOTHING across all four files (CLAUDE.md /portal rule).
+
+    pnpm tsc --noEmit — 0 errors. pnpm run build — must succeed.
+
+    Update STATE_OF_THE_BUILD.md with a session log entry (append only) listing every file created, confirming no data-fetching code exists in the Backlinks/GBP pages, and confirming the A-03/A-04 resolution was the correct authoritative source used for Local Visibility.
+
+    git add -A; git commit --no-verify -m 'docs: confirm queue-21 client portal enhancements complete, no agent/cost leakage, no fabricated backlink/GBP data'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: build

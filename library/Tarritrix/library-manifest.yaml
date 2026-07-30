@@ -96,3 +96,27 @@ queues:
     prompt_count: 5
     estimated_hours: 2
     priority: 12
+  - id: q19-operator-additions
+    file: queue-19-operator-additions.yaml
+    description: "TARRITRIX_DASHBOARD_SYSTEM_SPEC.md Section 3 - Penalty Mitigation Shield, AI and Voice Optimization, Content Pipeline Kanban, Governance and Approvals, Directories and Citations, layered into existing operator dashboard shell, wired to real A-25/27/34/35/37/38/46/47/SPDI data"
+    status: pending
+    depends_on: [q18-routes-and-rls-batch4]
+    prompt_count: 6
+    estimated_hours: 4
+    priority: 13
+  - id: q20-master-admin-console
+    file: queue-20-master-admin-console.yaml
+    description: "New /dashboard/master-admin route, master_admin only - Company Switcher, Platform Health (Vercel-vs-HEAD drift), Governance Sweep Tracker (live Pattern C RLS count via new RPC function), Revenue and Tier Distribution, LLM Cost Governance (Contract 41), Cross-Tenant Agent Health, per spec Section 4"
+    status: pending
+    depends_on: [q18-routes-and-rls-batch4]
+    prompt_count: 8
+    estimated_hours: 5
+    priority: 14
+  - id: q21-client-portal-enhancements
+    file: queue-21-client-portal-enhancements.yaml
+    description: "Map Stacking dual-timeline (production vs A-37 drip-cadence), clickable filterable page inventory, A-32 differentiating-feature tags, Local Visibility panel; Backlinks and GBP panels explicitly Not-Connected-only per spec Section 5, per spec Section 2"
+    status: pending
+    depends_on: [q18-routes-and-rls-batch4]
+    prompt_count: 5
+    estimated_hours: 3
+    priority: 15
