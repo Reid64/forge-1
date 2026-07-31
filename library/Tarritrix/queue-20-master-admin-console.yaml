@@ -75,7 +75,9 @@ prompts:
 
     pnpm tsc --noEmit — 0 errors. Run scripts/verify-permission-matrix-sync.ts and confirm it passes.
 
-    git add -A; git commit --no-verify -m 'feat: master_admin-only permission matrix entry and route gate for /dashboard/master-admin'; git push origin main. Report commit hash.
+    This adds a 91st permission action. In the same commit, update tests/unit/lib/auth/permission-matrix.test.ts's exhaustiveness assertion from 90 to 91 (count grows as agents ship — bump it every time an action is added, matching this test's own stated pattern). Run pnpm run verify:fast and confirm it passes clean.
+
+    git add -A; git commit -m 'feat: master_admin-only permission matrix entry and route gate for /dashboard/master-admin'; git push origin main. Report commit hash.
   gates:
   - type: compile
   - type: file_exists
@@ -97,7 +99,7 @@ prompts:
 
     Verify Test-Path for both files returns True. pnpm tsc --noEmit — 0 errors.
 
-    git add -A; git commit --no-verify -m 'feat: master admin Company Switcher (My Companies vs Client Portfolio)'; git push origin main. Report commit hash.
+    git add -A; git commit -m 'feat: master admin Company Switcher (My Companies vs Client Portfolio)'; git push origin main. Report commit hash.
   gates:
   - type: compile
   - type: file_exists
@@ -120,7 +122,7 @@ prompts:
 
     Verify Test-Path for both files returns True. pnpm tsc --noEmit — 0 errors.
 
-    git add -A; git commit --no-verify -m 'feat: master admin Platform Health panel with Vercel-deployment-vs-HEAD drift check'; git push origin main. Report commit hash.
+    git add -A; git commit -m 'feat: master admin Platform Health panel with Vercel-deployment-vs-HEAD drift check'; git push origin main. Report commit hash.
   gates:
   - type: compile
   - type: file_exists
@@ -150,7 +152,7 @@ prompts:
 
     pnpm tsc --noEmit — 0 errors.
 
-    git add -A; git commit --no-verify -m 'feat: Governance Sweep Tracker with live Pattern C RLS count via new RPC function (migration written, not applied)'; git push origin main. Report commit hash.
+    git add -A; git commit -m 'feat: Governance Sweep Tracker with live Pattern C RLS count via new RPC function (migration written, not applied)'; git push origin main. Report commit hash.
   gates:
   - type: compile
   - type: file_exists
@@ -174,7 +176,7 @@ prompts:
 
     Verify Test-Path for both files returns True. pnpm tsc --noEmit — 0 errors.
 
-    git add -A; git commit --no-verify -m 'feat: master admin Revenue and Tier Distribution panel'; git push origin main. Report commit hash.
+    git add -A; git commit -m 'feat: master admin Revenue and Tier Distribution panel'; git push origin main. Report commit hash.
   gates:
   - type: compile
   - type: file_exists
@@ -197,7 +199,7 @@ prompts:
 
     Verify Test-Path for both files returns True. pnpm tsc --noEmit — 0 errors.
 
-    git add -A; git commit --no-verify -m 'feat: master admin LLM Cost Governance panel (Contract 41)'; git push origin main. Report commit hash.
+    git add -A; git commit -m 'feat: master admin LLM Cost Governance panel (Contract 41)'; git push origin main. Report commit hash.
   gates:
   - type: compile
   - type: file_exists
@@ -220,7 +222,7 @@ prompts:
 
     Verify Test-Path for both files returns True. pnpm tsc --noEmit — 0 errors.
 
-    git add -A; git commit --no-verify -m 'feat: master admin Cross-Tenant Agent Health panel'; git push origin main. Report commit hash.
+    git add -A; git commit -m 'feat: master admin Cross-Tenant Agent Health panel'; git push origin main. Report commit hash.
   gates:
   - type: compile
   - type: file_exists
@@ -241,9 +243,9 @@ prompts:
 
     Run scripts/verify-permission-matrix-sync.ts — must pass. Run scripts/verify-rbac-pattern.ts — must pass, confirming this route has zero raw role-check patterns.
 
-    Update STATE_OF_THE_BUILD.md with a session log entry (append only) listing all files created across ma-001 through ma-008, the two unapplied migrations from ma-004 (if not yet applied), and the data-quality note about the duplicate Tarritrix client rows as an open item.
+    Update STATE_OF_THE_BUILD.md with a session log entry (append only) listing all files created across ma-001 through ma-008 and the two unapplied migrations from ma-004 (if not yet applied). The duplicate-Tarritrix-client-rows issue is resolved (see this queue's header note and STATE_OF_THE_BUILD.md's 2026-07-29 "Canonical Tarritrix Tenant Correction" entry) — do not log it as an open item.
 
-    git add -A; git commit --no-verify -m 'feat: assemble /dashboard/master-admin — Company Switcher, Platform Health, Governance Sweep Tracker, Revenue and Tier Distribution, LLM Cost Governance, Cross-Tenant Agent Health'; git push origin main. Report commit hash.
+    git add -A; git commit -m 'feat: assemble /dashboard/master-admin — Company Switcher, Platform Health, Governance Sweep Tracker, Revenue and Tier Distribution, LLM Cost Governance, Cross-Tenant Agent Health'; git push origin main. Report commit hash.
   gates:
   - type: compile
   - type: build

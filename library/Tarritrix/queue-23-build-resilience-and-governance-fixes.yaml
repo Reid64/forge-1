@@ -1,0 +1,142 @@
+# QUEUE 23 — Build Resilience and Governance-Gap Fixes (2026-07-30 audit reconciliation)
+#
+# Every prompt in this queue targets a root cause diagnosed directly (not guessed)
+# during the 2026-07-30 comprehensive audit (docs/audits/2026-07-30-comprehensive-
+# remaining-work-inventory.md) and the same-day companion audit
+# (docs/audits/2026-07-30-full-build-assessment.md). None of these depend on any
+# other pending queue and none touch A-45 (Backlink Intelligence) or A-48 (GBP
+# Control Center) — both remain explicitly held pending operator sign-off on
+# external vendor/API access, per standing instruction.
+#
+# fix-001 is the highest-priority item in the entire remaining-work inventory:
+# production has failed every deploy since commit c3700c0 (2026-07-28) because
+# of this exact bug. Run it first regardless of queue-number/priority ordering.
+
+governance:
+- BLUEPRINT.md
+- STATE_OF_THE_BUILD.md
+- SCHEMA_REGISTRY.md
+- BEHAVIORAL_CONTRACTS.md
+- AGENTS.md
+project: Tarritrix
+prompts:
+- id: fix-001-stripe-lazy-init
+  name: Fix production build crash — lazy-initialize Stripe client instead of module-scope instantiation
+  prompt: |
+    Root cause (verified 2026-07-30 by direct file read, not guessed): C:\Users\manag\Documents\Tarritrix\src\lib\stripe\client.ts throws `Error('STRIPE_SECRET_KEY is not set in environment')` at MODULE SCOPE (line 3-5) before constructing the Stripe SDK client at module scope (line 7). Next.js's build-time page-data collection imports every route module including anything that transitively imports this file, so an unset STRIPE_SECRET_KEY in the Vercel build environment crashes the ENTIRE production build, not just the one route that needs Stripe. Confirmed exactly 2 call sites import this file: src\app\api\operator\initiate-checkout\route.ts and src\app\api\webhooks\stripe\route.ts (verified via grep, do not assume there are others — re-grep for "from '@/lib/stripe/client'" across src/ before finishing to confirm this is still exactly 2 call sites).
+
+    Rewrite FILE: C:\Users\manag\Documents\Tarritrix\src\lib\stripe\client.ts
+
+    Replace the module-scope throw-and-construct pattern with a lazy singleton: export a `getStripeClient()` function (or equivalent lazy-initialization pattern — a Proxy-based lazy export is also acceptable if it preserves the existing `import { stripe } from '@/lib/stripe/client'` call-site syntax without requiring changes to the 2 call sites) that only reads process.env.STRIPE_SECRET_KEY and throws/constructs the Stripe client on first actual invocation at request time, never at module import time. The error message and error type when the key is genuinely missing at runtime must be preserved (do not swallow the error — a request that actually needs Stripe with no key configured should still fail loudly and clearly, just not at build time for routes that were never invoked).
+
+    Read both of the 2 call sites first to determine whether converting to `getStripeClient()` requires call-site changes or whether a Proxy-based lazy export can keep both call sites unchanged — prefer whichever approach requires the smaller diff, but do not silently change call-site behavior (e.g. do not make a genuinely-missing-key error surface differently than it does today at those 2 call sites).
+
+    pnpm tsc --noEmit — 0 errors. pnpm run build — must succeed even when STRIPE_SECRET_KEY is unset in the local shell (temporarily unset it for this one verification step, e.g. `Remove-Item Env:\STRIPE_SECRET_KEY` in the same PowerShell session before running `pnpm run build`, then restore it) — this is the exact failure mode to prove fixed. Report the build output showing success with the key absent.
+
+    git add src/lib/stripe/client.ts; git commit --no-verify -m 'fix: lazy-initialize Stripe client to prevent one missing env var from crashing the entire production build'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: build
+
+- id: fix-002-rls-platform-config-demo-requests
+  name: Close live RLS exposure on platform_config and demo_requests (any authenticated user currently has full access)
+  prompt: |
+    Root cause (verified live 2026-07-30 via direct pg_policies query against project jhiplicikizdpdsguimg, exact verbatim rows below — do not re-derive, use these): platform_config has two policies granting unrestricted access to the bare {authenticated} role with no operator-role check in qual or with_check — `authenticated_read_config` (cmd=SELECT, qual=true) and `operators_write_config` (cmd=ALL, qual=true, with_check=null). demo_requests has `operators_see_demo_requests` (cmd=ALL, roles={authenticated}, qual=true, with_check=null). All three names imply operator-only access but the actual policy grants any logged-in user — including client-portal accounts — full read (and on platform_config and demo_requests, full write) access to platform-wide config and every lead record. This is a real, live security gap, not a documentation issue.
+
+    Write FILE: C:\Users\manag\Documents\Tarritrix\supabase\migrations\20260730100000_close_platform_config_demo_requests_rls_exposure.sql
+
+    DROP POLICY "authenticated_read_config" ON platform_config;
+    DROP POLICY "operators_write_config" ON platform_config;
+    CREATE POLICY "operator_side_users_can_read_platform_config" ON platform_config
+      FOR SELECT
+      USING (user_has_operator_role(auth.uid()));
+    CREATE POLICY "operator_side_users_can_write_platform_config" ON platform_config
+      FOR ALL
+      USING (user_has_operator_role(auth.uid()))
+      WITH CHECK (user_has_operator_role(auth.uid()));
+
+    DROP POLICY "operators_see_demo_requests" ON demo_requests;
+    CREATE POLICY "operator_side_users_can_manage_demo_requests" ON demo_requests
+      FOR ALL
+      USING (user_has_operator_role(auth.uid()))
+      WITH CHECK (user_has_operator_role(auth.uid()));
+
+    Leave demo_requests' `anon_can_insert_demo_requests` policy (INSERT, roles={anon}, with_check=true) completely untouched — that is the intentional public demo-request form submission path and must keep working for unauthenticated marketing-site visitors.
+
+    Before finishing: re-verify no application code depends on a non-operator (client-portal) role reading or writing platform_config or demo_requests directly — grep src/ for both table names outside of src/app/api/dashboard/ and src/app/api/operator/ (operator-side routes use the service-role client via getOperatorContext() and bypass RLS regardless, so this migration only affects direct authenticated-role access, which per this grep should be zero legitimate call sites).
+
+    Verify Test-Path 'supabase\migrations\20260730100000_close_platform_config_demo_requests_rls_exposure.sql' returns True. pnpm tsc --noEmit — 0 errors.
+
+    If Supabase MCP tool access is available in this session: apply the migration via apply_migration, then re-run the verification query (SELECT tablename, policyname, cmd, roles, qual, with_check FROM pg_policies WHERE schemaname='public' AND tablename IN ('platform_config','demo_requests') ORDER BY tablename, policyname;) and report the result verbatim — confirm zero remaining bare USING(true)-for-authenticated policies on either table (the anon INSERT policy on demo_requests is expected and correct to remain). If MCP access is unavailable, do not guess at the live state — report explicitly that the migration is written but not yet applied, matching this project's established disclosure convention for that gap, and update SCHEMA_REGISTRY.md's platform_config/demo_requests notes to say WRITTEN, NOT YET APPLIED rather than asserting success.
+
+    git add supabase/migrations/20260730100000_close_platform_config_demo_requests_rls_exposure.sql; git commit --no-verify -m 'fix: close platform_config/demo_requests RLS exposure - restrict USING(true) authenticated policies to operator role'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - supabase/migrations/20260730100000_close_platform_config_demo_requests_rls_exposure.sql
+
+- id: fix-003-rbac-gates-agent-triggers
+  name: Add missing hasPermission() RBAC gates to A-03, A-04, A-05, A-07, A-08 trigger routes
+  prompt: |
+    Root cause (verified 2026-07-30 by direct read of each trigger route file, not guessed): src\app\api\agents\a-03\trigger\route.ts, a-04\trigger\route.ts, a-05\trigger\route.ts, a-07\trigger\route.ts, and a-08\trigger\route.ts each call getOperatorContext() (Contract 70) but do NOT call hasPermission() (Contract 71) before executing — any authenticated operator-side user, regardless of role (including va), can currently trigger these 5 agents. Every other agent trigger route in src/app/api/agents/ does call hasPermission() — read src\app\api\agents\a-06\trigger\route.ts or a-09\trigger\route.ts first as the correct reference pattern before touching the 5 broken ones.
+
+    Read src/lib/auth/permission-matrix.ts and src/types/contracts/role.ts to determine whether permission actions already exist for these 5 agents (trigger_a07_sitemap_generator and trigger_a08_indexation_tracker are noted as already present-but-unused per the 2026-07-30 audit — verify this directly rather than assuming) or need to be added for A-03/A-04/A-05.
+
+    For each of the 5 routes:
+    1. If a matching permission action already exists in the Action union and PERMISSION_MATRIX, add the hasPermission(role, 'trigger_aXX_...') check using the exact same pattern as a-06/a-09's trigger routes (deny with logDeniedAction + 403 on failure, per the RBAC AWARENESS section in AGENTS.md).
+    2. If no permission action exists yet (expected for A-03/A-04/A-05), add it: new entry in the Action type union (role.ts), new entry in PERMISSION_MATRIX (permission-matrix.ts) matching the existing posture for equivalent-risk agents (A-03/A-04/A-05 are LLM-non-cost-bearing structural agents that run after A-02 — master_admin: true, senior_admin: true, va: false is the existing convention for similar agents; verify against a comparable existing agent's row rather than assuming), and add it to scripts/verify-permission-matrix-sync.ts's agentActions list. Bump EXPECTED_ACTION_COUNT in both permission-matrix.ts locations (module-level check and the export used by the verify script) and in scripts/verify-permission-matrix-sync.ts, from the current confirmed-live count (90 as of 2026-07-30 — re-verify this is still 90 before incrementing, do not assume) to 90 + however many new actions you actually add.
+    3. Update tests/unit/lib/auth/permission-matrix.test.ts's exhaustiveness assertion to the new total.
+    4. Update docs/architecture/ROLE_HIERARCHY_ARCHITECTURE_SPEC.md Section 3 table with the new action rows.
+
+    pnpm tsc --noEmit — 0 errors. pnpm vitest run — all passing. pnpm tsx scripts/verify-permission-matrix-sync.ts — PASSED at the new count. pnpm tsx scripts/verify-rbac-pattern.ts — PASSED, 0 violations on all 5 previously-unprotected routes.
+
+    git add -A; git commit --no-verify -m 'fix: add missing hasPermission RBAC gates to A-03/A-04/A-05/A-07/A-08 trigger routes'; git push origin main. Report commit hash and the exact new EXPECTED_ACTION_COUNT.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/api/agents/a-03/trigger/route.ts
+    - src/app/api/agents/a-04/trigger/route.ts
+    - src/app/api/agents/a-05/trigger/route.ts
+    - src/app/api/agents/a-07/trigger/route.ts
+    - src/app/api/agents/a-08/trigger/route.ts
+
+- id: fix-004-cron-scheduling
+  name: Schedule cron-01-drip-publisher and daily-agent-cycle in vercel.json
+  prompt: |
+    Root cause (verified 2026-07-30 by direct read of vercel.json, not guessed): the current crons array contains exactly 3 entries (llm-health-check every 5 min, cron-02 at 0 6 * * *, cron-03 at 0 4 * * *). Two real, fully-implemented cron route files exist with zero schedule entry: src\app\api\cron\cron-01-drip-publisher\route.ts (the mechanism enforcing the CLAUDE.md-locked 15 pages/client/day drip cap, per BLUEPRINT.md/AGENTS.md spec'd to run daily at 3am UTC) and src\app\api\cron\daily-agent-cycle\route.ts (runs A-06/A-08/A-11, no explicitly spec'd cadence found in AGENTS.md — read the route file's own logic and any header comment to determine what cadence it was actually written to expect before picking a schedule; do not invent one if the file states its own intended cadence).
+
+    Rewrite FILE: C:\Users\manag\Documents\Tarritrix\vercel.json
+
+    Add two entries to the crons array: `{"path": "/api/cron/cron-01-drip-publisher", "schedule": "0 3 * * *"}` (3am UTC daily, per spec) and a daily-agent-cycle entry at whatever cadence the route file's own logic indicates (default to a distinct time slot, e.g. 0 5 * * *, if no explicit cadence is stated in the file, to avoid a thundering-herd collision with the other 4 crons all firing at once).
+
+    Before finishing: re-read cron-01-drip-publisher/route.ts's own logic for the ±20% variance / random time-offset requirement (Contract 15, Velocity Protection — "Random time offset 0-3600 seconds applied to each publish within the 3am UTC window"). Confirm this jitter is implemented INSIDE the route handler itself (so a single fixed 0 3 * * * Vercel cron trigger still produces varied actual-publish-times per client) rather than assumed to come from the cron schedule itself, since Vercel cron entries are fixed-time triggers with no built-in jitter. If the jitter logic is missing from the route, report this as a separate, additional gap — do not silently add it in this same prompt (Contract 57, one work product per prompt); flag it for a follow-up.
+
+    pnpm tsc --noEmit — 0 errors (vercel.json is not TypeScript but confirms nothing else broke). Verify the JSON is valid (`Get-Content vercel.json | ConvertFrom-Json` in PowerShell, or equivalent) before committing.
+
+    git add vercel.json; git commit --no-verify -m 'fix: schedule cron-01-drip-publisher and daily-agent-cycle in vercel.json - both were fully implemented but never registered'; git push origin main. Report commit hash, and explicitly report whether Contract 15's jitter requirement was confirmed present in cron-01's own logic or flagged as a separate gap.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - vercel.json
+
+- id: fix-005-a02-contract73-legacy-path
+  name: Confirm or add Contract 73 (A-44 prerequisite) enforcement in A-02's live onboarding code path
+  prompt: |
+    Root cause under investigation (flagged, not yet confirmed, by the 2026-07-30 audit — verify directly before changing anything, per Contract 46): two live A-02 implementations exist. src\lib\agents\a-02-page-generator.ts (reachable via the manual trigger route /api/agents/a-02/trigger) was reported by AGENTS.md's prior status note as enforcing the Contract 73 check (the client_ingestion_versions is_current=TRUE AND status IN ('success','manually_provided') check documented in AGENTS.md's A-02 spec section). The SEPARATE legacy implementation at src\agents\a-02-page-generator\index.ts — which is the one actually invoked by the real production onboarding flow via src\app\api\operator\onboard-client\route.ts — has NOT been confirmed either way to contain this same check.
+
+    Step 1: read src\lib\agents\a-02-page-generator.ts in full and quote the exact lines implementing the Contract 73 check (client_ingestion_versions query + throw ContractViolationError pattern from AGENTS.md's A-02 spec). Confirm it is genuinely present, not assumed.
+
+    Step 2: read src\agents\a-02-page-generator\index.ts in full. Search specifically for any query against client_ingestion_versions or any Contract 73 / ContractViolationError reference. Report explicitly whether the check is present or absent — do not guess.
+
+    Step 3, only if Step 2 confirms the check is absent: add the identical Contract 73 prerequisite check to src\agents\a-02-page-generator\index.ts at its entry point, before any LLM call, using the exact query and condition documented in AGENTS.md's A-02 spec section (client_id match, is_current=TRUE, status IN ('success','manually_provided'), approval_status IN ('auto_approved','approved','manually_provided')) — copy the real, verified-working query shape from the lib version confirmed in Step 1, do not write a new one from memory. Throw the same ContractViolationError class/pattern already used elsewhere in this codebase for Contract 73 (search for existing ContractViolationError usage first).
+
+    Step 4, only if Step 3 was needed: this is the exact prerequisite path real client onboarding uses, so also add or confirm an existing test (tests/unit/agents/ or tests/integration/) that onboards a client with no client_ingestion_versions row and asserts A-02 (the legacy/onboarding-path version specifically) refuses to generate pages.
+
+    pnpm tsc --noEmit — 0 errors. pnpm vitest run — all passing, including any new/existing A-02 legacy-path test.
+
+    git add -A; git commit --no-verify -m 'fix: confirm/add Contract 73 enforcement in A-02 legacy onboarding-path implementation' (or, if Step 2 found the check already present, make no code change and instead: git add AGENTS.md; git commit --no-verify -m 'docs: confirm Contract 73 enforcement present in both A-02 implementations, closing open audit item'); git push origin main. Report commit hash and state explicitly which of the two outcomes occurred (check was already present vs. check was added).
+  gates:
+  - type: compile

@@ -62,7 +62,7 @@ prompts:
 
     Verify Test-Path for both files returns True. pnpm tsc --noEmit — 0 errors.
 
-    git add -A; git commit --no-verify -m 'feat: Penalty Mitigation Shield operator panel (A-34/35/37/38)'; git push origin main. Report commit hash.
+    git add -A; git commit -m 'feat: Penalty Mitigation Shield operator panel (A-34/35/37/38)'; git push origin main. Report commit hash.
   gates:
   - type: compile
   - type: file_exists
@@ -85,7 +85,7 @@ prompts:
 
     Verify Test-Path for both files returns True. pnpm tsc --noEmit — 0 errors.
 
-    git add -A; git commit --no-verify -m 'feat: AI and Voice Optimization operator panel (A-25/27/47)'; git push origin main. Report commit hash.
+    git add -A; git commit -m 'feat: AI and Voice Optimization operator panel (A-25/27/47)'; git push origin main. Report commit hash.
   gates:
   - type: compile
   - type: file_exists
@@ -108,7 +108,7 @@ prompts:
 
     Verify Test-Path for both files returns True. pnpm tsc --noEmit — 0 errors.
 
-    git add -A; git commit --no-verify -m 'feat: Content Pipeline Kanban operator panel (A-02/05/11)'; git push origin main. Report commit hash.
+    git add -A; git commit -m 'feat: Content Pipeline Kanban operator panel (A-02/05/11)'; git push origin main. Report commit hash.
   gates:
   - type: compile
   - type: file_exists
@@ -127,7 +127,7 @@ prompts:
 
     Verify Test-Path 'src\components\dashboard\GovernanceApprovalsPanel.tsx' returns True. pnpm tsc --noEmit — 0 errors.
 
-    git add -A; git commit --no-verify -m 'feat: Governance and Approvals operator panel wired to existing SPDI routes'; git push origin main. Report commit hash, and report explicitly whether /api/approvals needed extending or was used as-is.
+    git add -A; git commit -m 'feat: Governance and Approvals operator panel wired to existing SPDI routes'; git push origin main. Report commit hash, and report explicitly whether /api/approvals needed extending or was used as-is.
   gates:
   - type: compile
   - type: file_exists
@@ -149,7 +149,7 @@ prompts:
 
     Verify Test-Path for both files returns True. pnpm tsc --noEmit — 0 errors.
 
-    git add -A; git commit --no-verify -m 'feat: Directories and Citations operator panel (A-46)'; git push origin main. Report commit hash.
+    git add -A; git commit -m 'feat: Directories and Citations operator panel (A-46)'; git push origin main. Report commit hash.
   gates:
   - type: compile
   - type: file_exists
@@ -168,7 +168,7 @@ prompts:
 
     pnpm tsc --noEmit — 0 errors. pnpm run build — must succeed and show /dashboard in the route list.
 
-    git add -A; git commit --no-verify -m 'feat: layer Penalty Mitigation Shield, AI/Voice Optimization, Content Pipeline Kanban, Governance and Approvals, Directories and Citations into operator dashboard shell'; git push origin main. Report commit hash.
+    git add -A; git commit -m 'feat: layer Penalty Mitigation Shield, AI/Voice Optimization, Content Pipeline Kanban, Governance and Approvals, Directories and Citations into operator dashboard shell'; git push origin main. Report commit hash.
   gates:
   - type: compile
   - type: build

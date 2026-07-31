@@ -57,7 +57,7 @@ prompts:
 
     pnpm tsc --noEmit — 0 errors.
 
-    git add -A; git commit --no-verify -m 'feat: portal Map Stacking API — production timeline, drip cadence timeline, filterable page inventory, differentiating tags'; git push origin main. Report commit hash.
+    git add -A; git commit -m 'feat: portal Map Stacking API — production timeline, drip cadence timeline, filterable page inventory, differentiating tags'; git push origin main. Report commit hash.
   gates:
   - type: compile
   - type: file_exists
@@ -75,7 +75,7 @@ prompts:
 
     Verify Select-String -Path 'src\app\portal\map-stacking\page.tsx' -Pattern 'A-37|A-32|A-02|agent' -CaseSensitive:$false — must return NOTHING. pnpm tsc --noEmit — 0 errors.
 
-    git add -A; git commit --no-verify -m 'feat: portal Map Stacking dual-timeline and filterable page inventory UI'; git push origin main. Report commit hash.
+    git add -A; git commit -m 'feat: portal Map Stacking dual-timeline and filterable page inventory UI'; git push origin main. Report commit hash.
   gates:
   - type: compile
   - type: file_exists
@@ -93,7 +93,7 @@ prompts:
 
     Verify Test-Path 'src\app\portal\local-visibility\page.tsx' returns True. pnpm tsc --noEmit — 0 errors.
 
-    git add -A; git commit --no-verify -m 'feat: portal Local Visibility panel, reusing existing geo-grid routes and GeoGridMap component'; git push origin main. Report commit hash.
+    git add -A; git commit -m 'feat: portal Local Visibility panel, reusing existing geo-grid routes and GeoGridMap component'; git push origin main. Report commit hash.
   gates:
   - type: compile
   - type: file_exists
@@ -117,7 +117,7 @@ prompts:
 
     Verify Select-String -Path 'src\app\portal\backlinks\page.tsx','src\app\portal\gbp\page.tsx' -Pattern 'A-45|A-48|agent|sample|placeholder|Lorem|example\.com' -CaseSensitive:$false — must return NOTHING. pnpm tsc --noEmit — 0 errors.
 
-    git add -A; git commit --no-verify -m 'feat: portal Backlinks and GBP panels — Not Connected state only, zero fabricated data'; git push origin main. Report commit hash, and report explicitly whether the GBP page already existed from queue-17 or was created fresh here.
+    git add -A; git commit -m 'feat: portal Backlinks and GBP panels — Not Connected state only, zero fabricated data'; git push origin main. Report commit hash, and report explicitly whether the GBP page already existed from queue-17 or was created fresh here.
   gates:
   - type: compile
   - type: file_exists
@@ -138,7 +138,7 @@ prompts:
 
     Update STATE_OF_THE_BUILD.md with a session log entry (append only) listing every file created, confirming no data-fetching code exists in the Backlinks/GBP pages, and confirming the A-03/A-04 resolution was the correct authoritative source used for Local Visibility.
 
-    git add -A; git commit --no-verify -m 'docs: confirm queue-21 client portal enhancements complete, no agent/cost leakage, no fabricated backlink/GBP data'; git push origin main. Report commit hash.
+    git add -A; git commit -m 'docs: confirm queue-21 client portal enhancements complete, no agent/cost leakage, no fabricated backlink/GBP data'; git push origin main. Report commit hash.
   gates:
   - type: compile
   - type: build

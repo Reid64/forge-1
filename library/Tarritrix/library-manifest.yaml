@@ -107,7 +107,7 @@ queues:
   - id: q20-master-admin-console
     file: queue-20-master-admin-console.yaml
     description: "New /dashboard/master-admin route, master_admin only - Company Switcher, Platform Health (Vercel-vs-HEAD drift), Governance Sweep Tracker (live Pattern C RLS count via new RPC function), Revenue and Tier Distribution, LLM Cost Governance (Contract 41), Cross-Tenant Agent Health, per spec Section 4"
-    status: pending
+    status: running
     depends_on: [q18-routes-and-rls-batch4]
     prompt_count: 8
     estimated_hours: 5
@@ -120,3 +120,20 @@ queues:
     prompt_count: 5
     estimated_hours: 3
     priority: 15
+  - id: q22-e2e-coverage
+    file: queue-22-e2e-coverage.yaml
+    description: "Playwright E2E coverage (Contract 53) for whatever queue-19 operator panels, queue-20 master-admin console, and queue-21 portal enhancements actually ship - access control tests for the master_admin-only route, per-panel zero-error rendering tests. Each prompt verifies its target files exist before writing against them; reports a gap explicitly rather than testing against markup that doesn't exist yet."
+    status: pending
+    depends_on: [q19-operator-additions, q20-master-admin-console, q21-client-portal-enhancements]
+    prompt_count: 3
+    estimated_hours: 2
+    priority: 16
+  - id: q23-build-resilience-fixes
+    file: queue-23-build-resilience-and-governance-fixes.yaml
+    description: "2026-07-30 audit reconciliation, due-now fixes with no unmet external dependency: (1) lazy-init the Stripe client to stop one missing env var from crashing the entire production build - root cause of every failed deploy since commit c3700c0; (2) close live RLS exposure on platform_config/demo_requests (USING(true) policies under operator-implying names currently grant any authenticated user full access); (3) add missing hasPermission() RBAC gates to A-03/A-04/A-05/A-07/A-08 trigger routes; (4) schedule cron-01-drip-publisher and daily-agent-cycle in vercel.json, both fully built but never registered; (5) confirm or add Contract 73 (A-44 prerequisite) enforcement in A-02's legacy onboarding-path implementation, the code path real client onboarding actually calls. Does not touch A-45 or A-48 - both remain held pending operator sign-off on external vendor/API access."
+    note: "Highest operator priority in the library despite its queue number - fix-001 (Stripe lazy-init) unblocks every deploy since 2026-07-28 and should run before any other pending queue, including q18."
+    status: pending
+    depends_on: []
+    prompt_count: 5
+    estimated_hours: 4
+    priority: 17

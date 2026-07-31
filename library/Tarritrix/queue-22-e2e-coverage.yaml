@@ -1,0 +1,89 @@
+# QUEUE 22 — Playwright E2E Coverage for Queue-19/20/21 Deliverables
+#
+# Context (verified 2026-07-30, not guessed): a comprehensive audit this date
+# (docs/audits/2026-07-30-comprehensive-remaining-work-inventory.md) found that
+# queue-19 and queue-21 have shipped zero files, and queue-20 has shipped exactly
+# 2 of its ~15 target files (one of those two still uncommitted). This queue
+# exists to close the test-coverage gap those three queues will leave behind
+# once they actually run — it depends on all three and will sit pending with
+# nothing to test against until they do. Per Contract 53 (Mandatory Playwright
+# Verification for UI Commits), every UI surface those queues create needs a
+# Playwright test verifying zero uncaught page errors, zero critical console
+# errors, and presence of the route's required DOM elements before it can be
+# considered actually complete — a screenshot alone does not satisfy this gate.
+#
+# Do NOT attempt to write these tests before queue-19/20/21 have actually run —
+# there is nothing on disk yet for e2e-001/002/003 below to test against. Each
+# prompt's own text instructs the build agent to verify the target files exist
+# first and to stop and report explicitly (not guess at markup or invent
+# selectors) if they do not.
+
+governance:
+- BLUEPRINT.md
+- STATE_OF_THE_BUILD.md
+- SCHEMA_REGISTRY.md
+- BEHAVIORAL_CONTRACTS.md
+- AGENTS.md
+project: Tarritrix
+prompts:
+- id: e2e-001-operator-additions
+  name: Playwright coverage for queue-19's 5 operator dashboard panels
+  prompt: |
+    Before writing anything: verify queue-19-operator-additions.yaml has actually run. Check for the existence of src/components/dashboard/PenaltyMitigationShield.tsx, AIVoiceOptimizationPanel.tsx, ContentPipelineKanban.tsx, GovernanceApprovalsPanel.tsx, and DirectoriesCitationsPanel.tsx. If any are missing, STOP and report exactly which files are missing rather than writing a test against markup that doesn't exist — do not invent selectors or guess at component structure per Contract 46.
+
+    If all 5 exist: read each component file to identify its real rendered DOM structure (do not assume — read the actual JSX). Read AGENTS.md and TARRITRIX_DASHBOARD_SYSTEM_SPEC.md Section 3 for what each panel is supposed to display.
+
+    Write FILE: C:\Users\manag\Documents\Tarritrix\tests\e2e\queue19-operator-additions.spec.ts
+
+    Per Contract 53 pattern: for each of the 5 panels, a test that logs in as master_admin (or reuses the existing dashboard auth fixture pattern used elsewhere in tests/e2e/), navigates to the dashboard route rendering that panel, asserts zero page.on('pageerror') events, zero critical page.on('console') errors (filtered per the existing allowed-noise convention used in other Contract 53 specs in this repo), and asserts the panel's real, verified-present DOM elements (headings, data rows, or empty-state text — whatever the component actually renders) are visible.
+
+    pnpm tsc --noEmit — 0 errors. pnpm playwright test tests/e2e/queue19-operator-additions.spec.ts — all passing.
+
+    git add tests/e2e/queue19-operator-additions.spec.ts; git commit --no-verify -m 'test: Playwright E2E coverage for queue-19 operator dashboard panels'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - tests/e2e/queue19-operator-additions.spec.ts
+
+- id: e2e-002-master-admin-console
+  name: Playwright coverage for queue-20's Master Admin Console
+  prompt: |
+    Before writing anything: verify queue-20-master-admin-console.yaml has fully run. Check for src/app/dashboard/master-admin/page.tsx (the assembly page from prompt ma-008) and src/components/dashboard/{CompanySwitcher,PlatformHealthPanel,GovernanceSweepTracker,RevenueTierDistributionPanel,LLMCostGovernancePanel,CrossTenantAgentHealthPanel}.tsx. If any are missing, STOP and report exactly which files are missing — do not write a partial test suite against a partially-shipped feature; report the gap instead per Contract 46.
+
+    If all exist: read src/app/dashboard/master-admin/layout.tsx (already committed as of 2026-07-30, commit 613bc5f) to confirm the exact permission action gating this route (view_master_admin_console per the permission matrix), and read each panel component for its real DOM structure.
+
+    Write FILE: C:\Users\manag\Documents\Tarritrix\tests\e2e\queue20-master-admin-console.spec.ts
+
+    Two test groups per Contract 53 pattern:
+    1. Access control: a master_admin-role session can reach /dashboard/master-admin with zero page errors; a senior_admin-role and a va-role session are correctly denied (redirected or 403'd — confirm which behavior the layout actually implements, do not assume).
+    2. Per-panel rendering: for each of the 6 panels, assert zero uncaught page errors, zero critical console errors, and the panel's real, verified-present DOM elements are visible with real (not mocked) data from the panel's backing API route.
+
+    pnpm tsc --noEmit — 0 errors. pnpm playwright test tests/e2e/queue20-master-admin-console.spec.ts — all passing.
+
+    git add tests/e2e/queue20-master-admin-console.spec.ts; git commit --no-verify -m 'test: Playwright E2E coverage for master admin console access control and panels'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - tests/e2e/queue20-master-admin-console.spec.ts
+
+- id: e2e-003-client-portal-enhancements
+  name: Playwright coverage for queue-21's client portal enhancements
+  prompt: |
+    Before writing anything: verify queue-21-client-portal-enhancements.yaml has actually run. Check for src/app/portal/map-stacking/page.tsx, src/app/portal/local-visibility/page.tsx, src/app/portal/backlinks/page.tsx, and src/app/portal/gbp/page.tsx. If any are missing, STOP and report exactly which files are missing rather than guessing at markup per Contract 46.
+
+    If all exist: read each page for its real rendered structure. Per queue-21's own spec, the Backlinks and GBP portal pages are explicitly Not-Connected-only in this phase (no A-45/A-48 backend exists) — confirm this is what each page actually renders (a real "not connected yet" state, not a crash) rather than assuming.
+
+    Write FILE: C:\Users\manag\Documents\Tarritrix\tests\e2e\queue21-client-portal-enhancements.spec.ts
+
+    Per Contract 53 pattern: for each of the 4 pages, a client-role session test asserting zero uncaught page errors, zero critical console errors, and the page's real DOM elements are visible — including an explicit assertion that Backlinks and GBP render their documented not-connected state cleanly (no error boundary, no blank page) rather than merely not crashing by accident.
+
+    pnpm tsc --noEmit — 0 errors. pnpm playwright test tests/e2e/queue21-client-portal-enhancements.spec.ts — all passing.
+
+    git add tests/e2e/queue21-client-portal-enhancements.spec.ts; git commit --no-verify -m 'test: Playwright E2E coverage for client portal map-stacking, local-visibility, backlinks, gbp pages'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - tests/e2e/queue21-client-portal-enhancements.spec.ts
