@@ -52,7 +52,7 @@ governance:
 - SCHEMA_REGISTRY.md
 - BEHAVIORAL_CONTRACTS.md
 - AGENTS.md
-- ROLE_HIERARCHY_ARCHITECTURE_SPEC.md
+- docs/architecture/ROLE_HIERARCHY_ARCHITECTURE_SPEC.md
 - docs/design/DASHBOARD_DESIGN_SPEC.md
 project: Tarritrix
 prompts:
