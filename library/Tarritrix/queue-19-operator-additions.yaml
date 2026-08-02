@@ -172,3 +172,4 @@ prompts:
   gates:
   - type: compile
   - type: build
+  - type: deploy_verify

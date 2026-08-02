@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # forge.ps1 - FORGE Master Orchestrator
 # ============================================================
 # Usage: .\forge.ps1 -project brightbox
@@ -227,17 +227,18 @@ function Run-Gate {
     Log "Running gate: $gateType" "GATE"
 
     switch ($gateType) {
-        { $_ -in @("compile", "build", "lint", "test") } {
+        { $_ -in @("compile", "build", "lint", "test", "deploy_verify") } {
             # Delegate to the standalone gate script (single source of truth).
             # Each gate script exits 0 on pass, non-zero on fail.
-            # Hard timeout: 15 min for build (heavier), 5 min for compile/lint/test.
+            # Hard timeout: 15 min for build (heavier), 10 min for deploy_verify
+            # (a real `vercel --prod` deploy), 5 min for compile/lint/test.
             $gateScript = Join-Path $GATES_DIR "$gateType.ps1"
             if (-not (Test-Path $gateScript)) {
                 Log "Gate script not found: $gateScript" "FAIL"
                 return @{ pass = $false; output = "Missing gate script: $gateScript" }
             }
 
-            $timeoutSeconds = if ($gateType -eq "build") { 900 } else { 300 }
+            $timeoutSeconds = if ($gateType -eq "build") { 900 } elseif ($gateType -eq "deploy_verify") { 600 } else { 300 }
             $procResult = Invoke-ProcessWithTimeout -FilePath "powershell.exe" `
                 -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $gateScript, "-workDir", $workDir) `
                 -TimeoutSeconds $timeoutSeconds
@@ -341,6 +342,16 @@ function Invoke-BuildAgent {
     $governanceContext = ""
     foreach ($doc in $governanceDocs) {
         $docPath = Join-Path $PROJECT_DIR $doc
+        if (-not (Test-Path $docPath)) {
+            $codebaseRoot = Join-Path (Split-Path $FORGE_ROOT -Parent) $project
+            $altPath = Join-Path $codebaseRoot $doc
+            if (Test-Path $altPath) {
+                $docPath = $altPath
+            } else {
+                $specPath = Join-Path $codebaseRoot "specs\$doc"
+                if (Test-Path $specPath) { $docPath = $specPath }
+            }
+        }
         if (Test-Path $docPath) {
             $content = Get-Content $docPath -Raw
             $governanceContext += "`n`n--- BEGIN $doc ---`n$content`n--- END $doc ---`n"
@@ -672,4 +683,7 @@ See: $LOG_FILE
 # ------------------------------------------------------------
 # Execute
 # ------------------------------------------------------------
-Start-ForgePipeline
+$result = Start-ForgePipeline
+if ($result.halted -or $result.failed -gt 0) { exit 1 } else { exit 0 }
+
+
