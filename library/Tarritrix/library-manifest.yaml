@@ -137,3 +137,36 @@ queues:
     prompt_count: 5
     estimated_hours: 4
     priority: 17
+  - id: queue-goc-0-reconciliation
+    file: queue-goc-0-reconciliation.yaml
+    description: "Read-only reconciliation report - existing GBP/GSC surface area, agent IDs, contract numbers - required reading before GOC-1/GOC-2/GOC-3 assign real IDs"
+    status: pending
+    depends_on: []
+    prompt_count: 1
+    estimated_hours: 1
+    priority: 18
+  - id: queue-goc-1-entity-graph
+    file: queue-goc-1-entity-graph.yaml
+    description: "Unified Entity Graph - google_entity_nodes/google_entity_edges schema (Pattern A RLS) + Entity Resolution Agent; dependency root for GOC-2 and GOC-3"
+    status: pending
+    depends_on: [queue-goc-0-reconciliation]
+    prompt_count: 2
+    estimated_hours: 2
+    priority: 19
+  - id: queue-goc-2-gsc-backend
+    file: queue-goc-2-gsc-backend.yaml
+    description: "GSC Control Center backend - Search Performance, Query Intelligence, Page Intelligence, URL Inspection queue, Sitemap Operations extension; extends A-08's existing GSC integration per GOC-0 findings"
+    status: pending
+    depends_on: [queue-goc-1-entity-graph]
+    prompt_count: 5
+    estimated_hours: 3
+    priority: 20
+  - id: queue-goc-3-gbp-backend
+    file: queue-goc-3-gbp-backend.yaml
+    description: "GBP Operations Center backend - full location/performance/review/post/Q&A/media domain + sync, review-response, Q&A, post-scheduling, and media-ingestion agents; fully written, none of it can run without live GBP API access"
+    status: held
+    note: "Held pending GBP API access confirmation — see AGENTS.md hard gate."
+    depends_on: [queue-goc-1-entity-graph]
+    prompt_count: 6
+    estimated_hours: 4
+    priority: 21
