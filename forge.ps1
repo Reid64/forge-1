@@ -265,7 +265,7 @@ function Run-Gate {
                 $missing = @()
                 foreach ($file in $files) {
                     $fullPath = Join-Path $workDir $file
-                    if (-not (Test-Path $fullPath)) {
+                    if (-not (Test-Path -LiteralPath $fullPath)) {
                         $missing += $file
                     }
                 }
@@ -683,7 +683,12 @@ See: $LOG_FILE
 # ------------------------------------------------------------
 # Execute
 # ------------------------------------------------------------
-$result = Start-ForgePipeline
-if ($result.halted -or $result.failed -gt 0) { exit 1 } else { exit 0 }
+# Guarded so this file can be dot-sourced (e.g. `. .\forge.ps1`) by tests to
+# reuse functions like Run-Gate without kicking off a full pipeline run.
+# Normal invocation (`powershell -File forge.ps1` or `.\forge.ps1`) is unaffected.
+if ($MyInvocation.InvocationName -ne '.') {
+    $result = Start-ForgePipeline
+    if ($result.halted -or $result.failed -gt 0) { exit 1 } else { exit 0 }
+}
 
 
