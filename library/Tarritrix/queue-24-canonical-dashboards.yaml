@@ -1,0 +1,1004 @@
+# QUEUE 24 — Canonical Dashboards (docs/design/tarritrix-command-center.html + tarritrix-social-command.html)
+#
+# Source of truth for every citation in this queue: docs/audits/2026-08-04-command-center-gap-analysis.md
+# (Section 1 live-conflict findings, Section 2 REAL/PARTIAL/NET-NEW classification, Section 3
+# cross-cutting bugs) plus the same-day STATE_OF_THE_BUILD.md session logs for the two schema fixes
+# (commit 4bf18ac: approvals, client_brand_voice_model, client_keyword_gap_analysis all now live) and
+# the Clients-screen wiring precedent (commit 04ab48f: src/app/dashboard/clients/page.tsx +
+# clients.module.css — the established pattern for porting the canonical file's CSS verbatim into a
+# scoped CSS Module rather than reinventing colors, and for reusing already-real backends as-is).
+#
+# Stale-audit corrections already applied before this queue was authored (per operator instruction,
+# not re-derived here): the audit doc's `approvals` and `keyword-intel` rows are REAL as of commit
+# 4bf18ac, not PARTIAL. Both tables exist live. Do not re-litigate this in any prompt below.
+#
+# Architecture decision for prompts 1-2 (shells), stated once here rather than repeated in both
+# prompts: each canonical file becomes its own new route tree under the existing /dashboard shell
+# (src/app/dashboard/command-center/, src/app/dashboard/social-command/) — NOT a replacement of the
+# existing /dashboard root, which stays exactly as-is per every prior queue's own standing instruction
+# (queue-19: "the existing shell... stays exactly as-is"; MonthlyGrowthTimeline is portal-side and out
+# of scope for this queue entirely). Each shell uses a per-section component registry
+# (SECTION_REGISTRY: Record<key, ComponentType>) with a shared GenericStubSection fallback for any key
+# not yet in the registry — this exactly mirrors the canonical file's own renderWorkspace() dispatch-map
+# pattern (map[state.section] || renderGenericOps(state.section)), so later prompts populate the
+# registry incrementally instead of editing a giant switch statement. CSS is ported verbatim (values
+# unchanged, selectors renamed for CSS Modules scoping) from each canonical file's own <style> block,
+# scoped so none of it leaks into the other, untouched, pre-existing dashboard/portal routes.
+#
+# Explicit judgment-call convention for prompts 3-22 (wiring): the operator's instruction requires
+# confirming genuine bespoke canonical content exists for each key BEFORE wiring it, honest-stubbing
+# instead if not, and noting the gap rather than forcing a design. This queue does not pre-resolve
+# that determination for any of the 20 keys — each wiring prompt below instructs the executing session
+# to read the canonical file's actual dispatch entry for that exact key first (renderWorkspace()'s map
+# for command-center; PRIMARY_NAV/SECONDARY_NAV's external flag and SEC_LABELS for social-command) and
+# branch: bespoke render function found -> build faithfully; key marked external:true (cross-link by
+# design, confirmed for every social-command PRIMARY_NAV item at authoring time: client-workspace,
+# map-stacking, storm-intel, gsc-module, client-portal, master-admin) -> wire as a real navigation
+# link to the cited existing route, no new screen; GENERIC_ROW_TEMPLATES entry only or no entry at all
+# -> honest-stub per the src/app/portal/backlinks/page.tsx pattern and report the gap explicitly. This
+# is not deferred out of laziness — five of the twenty keys (gsc, agent-control, crawling, indexation,
+# schema) were directly confirmed to have real dispatch entries during this queue's authoring (read
+# docs/design/tarritrix-command-center.html:1237-1260's renderWorkspace() map directly); the remaining
+# keys were not individually re-verified for this file to avoid re-doing the exact investigation the
+# 2026-08-04 wiring session already did for clients/onboarding/team-roles/audit-logs/billing/
+# page-inventory/platform-settings (see STATE_OF_THE_BUILD.md, "canonical UI wiring — 1 of 7 items
+# wired, 6 stopped on hidden conflicts") — each remaining key gets the same live check this queue
+# describes, not a guess baked into this file.
+#
+# Batch-count reconciliation for prompts 23-37 (stated as "15 prompts" against 14 numbered batches in
+# the operator's own instruction): batch (10)'s "Client Ops remainder... plus Analytics: analytics"
+# is split into two prompts here — qd-stub-010 (Client Operations remainder) and qd-stub-011 (Analytics)
+# — because Analytics is genuinely its own top-level NAV group in the canonical file (a single-item
+# group, "Reporting"), not a Client Operations item; splitting it is more structurally correct AND
+# reconciles the stated count of 15 exactly. Every other batch maps one-to-one to one prompt.
+#
+# Governance lock, non-discretionary: per AGENTS.md and STATE_OF_THE_BUILD.md, A-48 (GBP), A-45
+# (Backlink Intelligence), A-40 (External Signal Coordination/outreach), A-24 (Competitor analysis),
+# and SERP intelligence (AGENTS.md-gated to Phase 1.5, not integrated) are all explicitly HELD or
+# NOT STARTED pending operator sign-off on external vendor/API access or phase gating. Every prompt
+# below whose nav item maps to one of these is a stub-only prompt — this is stated as a hard
+# constraint in each such prompt's text, not left to the executing session's discretion.
+
+governance:
+- BLUEPRINT.md
+- STATE_OF_THE_BUILD.md
+- SCHEMA_REGISTRY.md
+- BEHAVIORAL_CONTRACTS.md
+- AGENTS.md
+- CLAUDE.md
+- docs/audits/2026-08-04-command-center-gap-analysis.md
+project: Tarritrix
+prompts:
+
+# ============================================================================
+# PROMPTS 1-2 — Dashboard shells
+# ============================================================================
+
+- id: qd-shell-001
+  name: Command Center shell — full 12-group/70-item nav, exact visual replication, fully navigable
+  prompt: |
+    Read docs/design/tarritrix-command-center.html in full before writing anything, specifically: the NAV array (lines 646-741, 12 groups, 70 items), the :root CSS variable block and every class rule used by .pri-nav/.nav-group-label/.nav-item/.nav-collapse-btn/.workspace-header/.panel/.coming-block (grep every ".nav-" and ".coming-block" rule, do not guess values), and renderWorkspace()'s dispatch map (lines 1237-1260) which this shell's registry pattern replicates.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\dashboard\command-center\layout.tsx
+
+    Server component. Render the sidebar nav exactly matching the canonical file's markup structure for all 12 groups / 70 items (group label with collapse chevron, item rows with icon glyph + label, active-item highlight driven by the current route segment). Read src\app\dashboard\layout.tsx first to confirm this new layout nests correctly inside the existing dashboard auth/role gate (getOperatorContext() + getUserActiveRole(), Contract 70/71) rather than duplicating it.
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\command-center\command-center.module.css
+
+    Port verbatim (values unchanged, selectors renamed for CSS Modules scoping) the canonical file's dark-theme :root variables and every class rule referenced by the nav/workspace-header/panel/coming-block markup, matching the exact pattern already established in src\app\dashboard\clients\clients.module.css (commit 04ab48f) — scope everything to a single wrapping class so nothing leaks into the pre-existing, untouched /dashboard root or any of the other 93 nav items this queue does not touch outside this new route tree.
+
+    Write FILE 3: C:\Users\manag\Documents\Tarritrix\src\components\command-center\section-registry.ts
+
+    Export `SECTION_REGISTRY: Record<string, React.ComponentType>` (initially empty) and `GenericStubSection({ sectionKey }: { sectionKey: string })` — a component reproducing the canonical file's own renderGenericOps() "coming-block" fallback exactly (dashed border, "{label} operates against live client data once this department's data source is wired" copy, resolved from the NAV array's own group/label for sectionKey, not a hardcoded string). This is the shared fallback every later prompt in this queue relies on — get its behavior right, since prompts 3-37 depend on it existing correctly.
+
+    Write FILE 4: C:\Users\manag\Documents\Tarritrix\src\app\dashboard\command-center\[section]\page.tsx
+
+    `const Component = SECTION_REGISTRY[params.section] ?? GenericStubSection; return <Component sectionKey={params.section} />`. Every one of the 70 nav items must be reachable at this route pattern and render without crashing (falling to GenericStubSection is correct and expected for every key until later prompts populate the registry).
+
+    Write FILE 5: C:\Users\manag\Documents\Tarritrix\src\app\dashboard\command-center\page.tsx
+
+    Redirect to /dashboard/command-center/command-center (the NAV array's own first item/key).
+
+    Click through all 70 items in a real browser session (or Playwright) and confirm every one renders the generic stub with zero page errors — this is the fully-navigable requirement, verified before this prompt is considered done, not assumed from the route existing.
+
+    pnpm tsc --noEmit — 0 errors. pnpm run build — must succeed and list /dashboard/command-center/[section] in the route table.
+
+    git add -A; git commit -m 'feat: Command Center canonical shell — full 12-group/70-item nav, section registry, generic stub fallback'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: build
+  - type: file_exists
+    files:
+    - src/app/dashboard/command-center/layout.tsx
+    - src/app/dashboard/command-center/[section]/page.tsx
+    - src/components/command-center/section-registry.ts
+    - src/components/command-center/command-center.module.css
+
+- id: qd-shell-002
+  name: Social Command shell — 9-item PRIMARY_NAV + 4-group/21-item SECONDARY_NAV, exact visual replication, fully navigable
+  prompt: |
+    Read docs/design/tarritrix-social-command.html in full before writing anything: PRIMARY_NAV (lines 627-637, 9 items, each with an `external` flag), SECONDARY_NAV (lines 638-668, 4 groups, 21 items), and every CSS rule the sidebar/workspace markup depends on.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\dashboard\social-command\layout.tsx
+
+    Server component. Render PRIMARY_NAV as a top icon rail (9 items) and SECONDARY_NAV as the main sidebar (4 groups, 21 items), same auth nesting as qd-shell-001. PRIMARY_NAV items marked `external:true` in the canonical file must render as real `<Link>`s to their already-existing target routes, not placeholders — resolve each of the 9 targets by reading the canonical file's own key names against live routes: command-center -> /dashboard/command-center (this queue's own new shell), client-workspace -> /dashboard/clients (existing), map-stacking -> /portal/map-stacking (existing, confirm this is the intended cross-link target given it's client-portal-facing — if genuinely ambiguous which surface an operator-side link should open, link to the same target used by the queue's own qd-wire-016 prompt below rather than inventing a second answer independently), storm-intel -> confirm target during qd-wire-017, gbp-module -> /dashboard (no dedicated GBP operator route exists yet per the audit — link to /dashboard and note this gap explicitly rather than inventing a route), gsc-module -> confirm target during qd-wire-018, social -> /dashboard/social-command/overview (this shell's own default), client-portal -> /portal (existing), master-admin -> /dashboard/master-admin (existing, master_admin-role-gated already).
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\social-command\social-command.module.css
+
+    Port verbatim from the canonical file's own CSS, same scoping convention as qd-shell-001.
+
+    Write FILE 3: C:\Users\manag\Documents\Tarritrix\src\components\social-command\section-registry.ts
+
+    Same SECTION_REGISTRY + GenericStubSection pattern as command-center's, keyed by SECONDARY_NAV's 21 keys.
+
+    Write FILE 4: C:\Users\manag\Documents\Tarritrix\src\app\dashboard\social-command\[section]\page.tsx and FILE 5: C:\Users\manag\Documents\Tarritrix\src\app\dashboard\social-command\page.tsx
+
+    Same pattern as qd-shell-001's FILE 4/5, redirecting to SECONDARY_NAV's first item ("overview").
+
+    Click through all 9 PRIMARY_NAV links and all 21 SECONDARY_NAV items and confirm every one navigates correctly (external links land on the real existing route, internal ones render the generic stub) with zero page errors.
+
+    pnpm tsc --noEmit — 0 errors. pnpm run build — must succeed.
+
+    git add -A; git commit -m 'feat: Social Command canonical shell — 9-item PRIMARY_NAV cross-links, 4-group/21-item SECONDARY_NAV, section registry'; git push origin main. Report commit hash, and report explicitly which PRIMARY_NAV targets were resolved to an existing route vs flagged as a gap (gbp-module).
+  gates:
+  - type: compile
+  - type: build
+  - type: file_exists
+    files:
+    - src/app/dashboard/social-command/layout.tsx
+    - src/app/dashboard/social-command/[section]/page.tsx
+    - src/components/social-command/section-registry.ts
+    - src/components/social-command/social-command.module.css
+
+# ============================================================================
+# PROMPTS 3-22 — Wiring (20 prompts, one per named item)
+# ============================================================================
+
+- id: qd-wire-001
+  name: Wire operations-queue into the Command Center shell (or fold into home view, matching canonical behavior)
+  prompt: |
+    Read docs/design/tarritrix-command-center.html's renderWorkspace() map (lines 1237-1260) and search for "operations-queue" across the whole file before writing anything. This key was NOT confirmed to have a dispatch entry when this queue was authored — confirm directly rather than trusting that.
+
+    If the canonical file renders operations-queue content only as part of its Command Center home view (activeOperationsForHome()-style rows) rather than as its own distinct screen: do not force a separate screen. Instead, register "command-center" (the home key) in SECTION_REGISTRY with a component reusing the same real data source, and leave "operations-queue" itself pointing at GenericStubSection with an explicit one-line code comment stating it was confirmed folded into the home view, not a separate screen, per the canonical file.
+
+    If a genuine separate dispatch entry is found instead: build it wired to the real backend per docs/audits/2026-08-04-command-center-gap-analysis.md's operations-queue row — `/api/dashboard/action-queue/route.ts`, rendered via the same query pattern as `PriorityLaneCritical/Attention/Informational.tsx` (pages, client_ingestion_versions, subscriptions, demo_requests, agent_events).
+
+    Write FILE: C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\OperationsQueueSection.tsx (or, if folded into home, C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\CommandCenterHomeSection.tsx) and register it in section-registry.ts.
+
+    Live-verify with a real logged-in read: load the actual route in a real browser session and confirm real data renders (not a compile-only check).
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: wire operations-queue into Command Center shell'; git push origin main. Report commit hash and explicitly which of the two outcomes (separate screen vs folded into home) was confirmed.
+  gates:
+  - type: compile
+
+- id: qd-wire-002
+  name: Wire activity-stream into the Command Center shell
+  prompt: |
+    Same investigation-first requirement as qd-wire-001: read the canonical file directly to confirm whether "activity-stream" has its own dispatch entry or is folded into the Command Center home view before writing.
+
+    If a genuine bespoke or generic-table entry exists, wire it to the real backend per the audit — `src/components/dashboard/ActivityStream.tsx` + `/api/dashboard/activity-feed/route.ts`, reading `agent_events` (Table 25) joined to `clients`. Reuse the existing ActivityStream component's data-fetching logic rather than duplicating it if it already fits the canonical layout; if the canonical layout materially differs, wrap the existing fetch in a new presentation component instead of writing a second parallel data path.
+
+    If it is genuinely folded into home only: same honest-fold-and-flag pattern as qd-wire-001, no separate screen forced.
+
+    Write FILE: C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\ActivityStreamSection.tsx (only if a genuine separate screen is confirmed) and register in section-registry.ts.
+
+    Live-verify with a real logged-in read against real agent_events data.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: wire activity-stream into Command Center shell'; git push origin main. Report commit hash and which outcome was confirmed.
+  gates:
+  - type: compile
+
+- id: qd-wire-003
+  name: Wire clients into the Command Center shell (reuse the already-wired implementation, do not rebuild)
+  prompt: |
+    src\app\dashboard\clients\page.tsx and src\app\dashboard\clients\clients.module.css were already rebuilt to match the canonical file's renderClients() screen exactly in commit 04ab48f (2026-08-04) — read both in full before writing anything, and do NOT rebuild this screen from scratch. This prompt's only job is to make it reachable from the new Command Center shell's registry at the "clients" key, reusing the existing component.
+
+    Extract the existing page's content into a reusable component (e.g. move the current page.tsx body into C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\ClientsSection.tsx, keeping the CSS module import) if it is not already structured as an importable component, then have both src\app\dashboard\clients\page.tsx (existing route, untouched behavior) and the new command-center shell's registry entry render the same component — no duplicated logic, no forked copy that can drift.
+
+    Register "clients" -> ClientsSection in section-registry.ts.
+
+    Live-verify with a real logged-in read at the new /dashboard/command-center/clients route: confirm the same real data (business names, tiers, industries) that already renders at /dashboard/clients also renders here, and that the two routes stay in sync because they share the same component (not by re-testing both independently and hoping).
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: wire clients into Command Center shell by extracting the existing 04ab48f implementation into a shared component'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/components/command-center/sections/ClientsSection.tsx
+
+- id: qd-wire-004
+  name: Wire local-rank into the Command Center shell
+  prompt: |
+    Read docs/design/tarritrix-command-center.html's GENERIC_ROW_TEMPLATES entry for "local-rank" (cols: Keyword/City/Rank) before writing — confirmed present at authoring time as a generic-table entry, not a bespoke screen; re-confirm this is still accurate before treating it as settled.
+
+    Per docs/audits/2026-08-04-command-center-gap-analysis.md: local-rank's real backend is `geo_grid_scan_points` (Table 83, live), currently only exposed operator-side via the client-portal-facing `src/app/portal/local-visibility/page.tsx` — "no operator equivalent, but the capability itself is fully real."
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\local-rank\route.ts — GET handler, getOperatorContext() auth (Contract 70), optional client_id query param (aggregate-or-scoped pattern matching src\app\api\dashboard\penalty-shield\route.ts), querying geo_grid_scan_points directly for average rank, trend, and top-N locations, matching the generic table's own column shape (Keyword/City/Rank) as closely as the real data supports — if the canonical column set doesn't map cleanly onto the real query results, keep the real data's actual shape and note the deviation rather than force-fitting fake columns.
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\LocalRankSection.tsx, registered in section-registry.ts.
+
+    Live-verify with a real logged-in read against real geo_grid_scan_points data.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: wire local-rank into Command Center shell — operator-side geo_grid_scan_points view'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/api/dashboard/local-rank/route.ts
+
+- id: qd-wire-005
+  name: Wire gsc into the Command Center shell (confirmed bespoke renderGSC() dispatch entry)
+  prompt: |
+    Confirmed at authoring time: docs/design/tarritrix-command-center.html's renderWorkspace() map (line ~1248) dispatches "gsc" to a bespoke renderGSC() function (around line 2006). Read that function in full before writing, along with the real backend per the audit: `client_gsc_credentials` (94), `page_indexation` (91), `gsc_rate_limits` (92); real per-client UI already exists at `src\app\dashboard\clients\[id]\gsc\page.tsx`.
+
+    This is a cross-client aggregate screen, distinct from the existing per-client one — read the existing per-client route and its API first to reuse the same query logic rather than writing a second parallel implementation, then aggregate across all operator-visible clients.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\gsc-overview\route.ts — GET handler, getOperatorContext() auth, aggregate GSC connection/indexation status across clients, reusing the existing per-client route's query shape.
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\GscSection.tsx matching renderGSC()'s actual layout, with a way to drill into the existing per-client `/dashboard/clients/[id]/gsc` route for detail. Register in section-registry.ts.
+
+    Live-verify with a real logged-in read against real client_gsc_credentials/page_indexation data.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: wire gsc into Command Center shell — aggregate view over existing per-client GSC data'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/api/dashboard/gsc-overview/route.ts
+
+- id: qd-wire-006
+  name: Wire internal-linking into the Command Center shell
+  prompt: |
+    Read docs/design/tarritrix-command-center.html directly to confirm whether "internal-linking" has a bespoke or generic-table dispatch entry — not confirmed either way at authoring time. If neither exists, honest-stub per src/app/portal/backlinks/page.tsx's pattern instead of forcing a design, and report the gap explicitly.
+
+    If genuine content exists: real backend per the audit is A-06 (SHIPPED+WIRED), `link_audit_log` (16), `page_internal_links` (12), `/api/agents/a-06/trigger`. Read SCHEMA_REGISTRY.md for both tables' columns before writing.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\internal-linking\route.ts — GET handler, getOperatorContext() auth, real query against link_audit_log/page_internal_links (recent link changes, hub-and-spoke structure health).
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\InternalLinkingSection.tsx, registered in section-registry.ts.
+
+    Live-verify with a real logged-in read against real link_audit_log data.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: wire internal-linking into Command Center shell (A-06 link_audit_log/page_internal_links)'; git push origin main. Report commit hash, and explicitly report whether this was built or honest-stubbed.
+  gates:
+  - type: compile
+
+- id: qd-wire-007
+  name: Wire content-refresh into the Command Center shell
+  prompt: |
+    Same investigation-first requirement as qd-wire-006 for the "content-refresh" key — confirm bespoke/generic/nothing before writing; honest-stub if nothing.
+
+    If content exists: real backend per the audit is A-11 (SHIPPED+WIRED), `/api/agents/a-11/trigger`, reads `page_performance_daily`. Read SCHEMA_REGISTRY.md for page_performance_daily's columns first.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\content-refresh\route.ts — GET handler, getOperatorContext() auth, real query surfacing refresh candidates (pages below median conversion_rate_30d per A-11's own prioritization logic in src\lib\agents\a-11-content-refresh-engine.ts — read that file's actual prioritization query before reproducing it) and recent refresh history from agent_events.
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\ContentRefreshSection.tsx, registered in section-registry.ts.
+
+    Live-verify with a real logged-in read against real page_performance_daily data.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: wire content-refresh into Command Center shell (A-11 page_performance_daily)'; git push origin main. Report commit hash and whether built or honest-stubbed.
+  gates:
+  - type: compile
+
+- id: qd-wire-008
+  name: Wire quality-review into the Command Center shell
+  prompt: |
+    Same investigation-first requirement for "quality-review" — confirm before writing; honest-stub if nothing.
+
+    Real backend per the audit: A-05 (SHIPPED+WIRED); `page_quality_scores` (10), `page_validation_results` (76), `page_decisions` (41); a real per-client flagged-pages workflow already exists at `src\app\dashboard\clients\[id]\flagged\page.tsx` plus approve/reject routes. This is a cross-client aggregate screen — read the existing per-client flagged implementation first and reuse its query logic rather than duplicating it.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\quality-review\route.ts — GET handler, getOperatorContext() auth, aggregate flagged/review-pending pages across all operator-visible clients, reusing the existing per-client query shape, with a link-through to the existing per-client flagged page for the actual approve/reject action (Contract 9: only A-05 sets pages.status='queued' — this screen must not add a second mutation path for that).
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\QualityReviewSection.tsx, registered in section-registry.ts.
+
+    Live-verify with a real logged-in read against real page_validation_results/page_decisions data.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: wire quality-review into Command Center shell — aggregate view over existing per-client flagged-pages workflow'; git push origin main. Report commit hash and whether built or honest-stubbed.
+  gates:
+  - type: compile
+
+- id: qd-wire-009
+  name: Wire crawling into the Command Center shell (confirmed shared renderTechnical() dispatch entry)
+  prompt: |
+    Confirmed at authoring time: docs/design/tarritrix-command-center.html's renderWorkspace() map dispatches "crawling" (along with site-audits/indexation/schema/redirects/canonicals/page-experience) to a SHARED renderTechnical() function (around line 2195). Read that function in full before writing to determine its actual per-key behavior (tabbed single screen vs distinct sub-views) — do not assume it's fully bespoke per key just because a dispatch entry exists.
+
+    Real backend per the audit: A-44's Playwright crawler; `site_crawls` (78, confirmed live); `/api/agents/a-44/`.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\crawling\route.ts — GET handler, getOperatorContext() auth, real query against site_crawls (job status, last crawl per client, errors).
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\CrawlingSection.tsx matching renderTechnical()'s actual layout for this specific tab/key, registered in section-registry.ts.
+
+    Live-verify with a real logged-in read against real site_crawls data.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: wire crawling into Command Center shell (A-44 site_crawls)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/api/dashboard/crawling/route.ts
+
+- id: qd-wire-010
+  name: Wire indexation into the Command Center shell (shared renderTechnical() dispatch entry)
+  prompt: |
+    Same renderTechnical() function as qd-wire-009 handles "indexation" — read the specific tab/section of that function for this key before writing.
+
+    Real backend per the audit: A-08; `indexation_records` (35) and `page_indexation` (91) both confirmed live; `/api/agents/a-08/`; CRON-02 scheduled. Note the AGENTS.md-flagged dual-implementation split (legacy vs `src/lib/agents/`) — read AGENTS.md's A-08 entry and confirm which implementation's output table this screen should read from (the one CRON-02 actually calls in production, not whichever is more convenient).
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\indexation\route.ts — GET handler, getOperatorContext() auth, aggregate indexation health across clients from the production-authoritative table.
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\IndexationSection.tsx, registered in section-registry.ts.
+
+    Live-verify with a real logged-in read against real indexation data.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: wire indexation into Command Center shell (A-08)'; git push origin main. Report commit hash and which of the two A-08 implementations' output table this screen reads from.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/api/dashboard/indexation/route.ts
+
+- id: qd-wire-011
+  name: Wire schema into the Command Center shell (shared renderTechnical() dispatch entry)
+  prompt: |
+    Same renderTechnical() function as qd-wire-009/010 handles "schema" — read that specific tab/section before writing.
+
+    Real backend per the audit: A-03 (SHIPPED+WIRED); `page_schemas` (11) confirmed live; `/api/agents/a-03/`.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\schema-status\route.ts — GET handler, getOperatorContext() auth, real query against page_schemas (coverage per client, validation failures).
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\SchemaSection.tsx, registered in section-registry.ts.
+
+    Live-verify with a real logged-in read against real page_schemas data.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: wire schema into Command Center shell (A-03 page_schemas)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/api/dashboard/schema-status/route.ts
+
+- id: qd-wire-012
+  name: Wire agent-control into the Command Center shell (reuse the existing dashboard/agents page)
+  prompt: |
+    Confirmed at authoring time: docs/design/tarritrix-command-center.html's renderWorkspace() map dispatches "agent-control" to a bespoke renderAgentControl() function. Read it, then read the ALREADY-REAL existing implementation at src\app\dashboard\agents\page.tsx (real, read-only agent health/cost observability, agent_events-backed) before writing — reuse it, do not rebuild.
+
+    Extract the existing page's content into C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\AgentControlSection.tsx exactly as qd-wire-003 did for clients (shared component, both routes render it, no forked duplicate), matching visual adjustments only where the canonical renderAgentControl() layout genuinely differs — note any such adjustment explicitly rather than silently changing the existing page's proven layout.
+
+    Register "agent-control" -> AgentControlSection in section-registry.ts.
+
+    Live-verify with a real logged-in read confirming the same real agent_events data renders at both /dashboard/agents and the new /dashboard/command-center/agent-control route.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: wire agent-control into Command Center shell by extracting the existing dashboard/agents implementation into a shared component'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/components/command-center/sections/AgentControlSection.tsx
+
+- id: qd-wire-013
+  name: Wire execution-logs into the Command Center shell
+  prompt: |
+    Read docs/design/tarritrix-command-center.html's GENERIC_ROW_TEMPLATES entry for "execution-logs" (cols: Agent/Action/Result) before writing — confirmed present as a generic-table entry at authoring time.
+
+    Real backend per the audit: `agent_events` (25, confirmed live) — the same table qd-wire-012's AgentControlSection reads, but this screen is a distinct raw-log view (per-event rows), not the health/cost summary agent-control shows. Do not merge these two screens even though they share a data source — the canonical file treats them as separate nav destinations.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\execution-logs\route.ts — GET handler, getOperatorContext() auth, paginated raw agent_events rows (agent id, action, result, timestamp), optional filter by agent/client.
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\ExecutionLogsSection.tsx matching the generic table's column shape (Agent/Action/Result), registered in section-registry.ts.
+
+    Live-verify with a real logged-in read against real agent_events rows.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: wire execution-logs into Command Center shell — raw agent_events log view, distinct from agent-control'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/api/dashboard/execution-logs/route.ts
+
+- id: qd-wire-014
+  name: Wire integrations into the Command Center shell
+  prompt: |
+    Read docs/design/tarritrix-command-center.html's GENERIC_ROW_TEMPLATES entry for "integrations" (cols: Service/Clients Connected/Status) before writing — confirmed present as a generic-table entry at authoring time.
+
+    Real backend per the audit: A-19 (SHIPPED+WIRED); `client_integrations` (34) confirmed live; `/api/agents/a-19/` + field-service webhook.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\integrations-status\route.ts — GET handler, getOperatorContext() auth, real query against client_integrations grouped by service and connection status, matching the generic table's column shape as closely as real data supports.
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\IntegrationsSection.tsx, registered in section-registry.ts.
+
+    Live-verify with a real logged-in read against real client_integrations data.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: wire integrations into Command Center shell (A-19 client_integrations)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/api/dashboard/integrations-status/route.ts
+
+- id: qd-wire-015
+  name: Wire client-workspace into the Social Command shell (external cross-link, confirmed by design)
+  prompt: |
+    Confirmed at authoring time: "client-workspace" is a social-command PRIMARY_NAV item with `external:true` — by the canonical file's own design this is a navigation cross-link, not a bespoke screen to build. Re-confirm this directly in docs/design/tarritrix-social-command.html before proceeding (grep the PRIMARY_NAV array for this exact key).
+
+    Real target per the audit: `src\app\dashboard\clients\[id]\page.tsx` (real client detail view, already live).
+
+    In C:\Users\manag\Documents\Tarritrix\src\app\dashboard\social-command\layout.tsx (written in qd-shell-002), confirm or fix the client-workspace link so it resolves to a real client — if no client is currently selected in ClientContext, link to /dashboard/clients (the list) rather than a broken /dashboard/clients/undefined; if a client IS selected, link directly to /dashboard/clients/[id]. Do not build a second client-detail screen inside the social-command shell.
+
+    Live-verify by clicking the link with and without a client selected in ClientContext and confirming both cases navigate correctly with zero page errors.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'fix: client-workspace cross-link in Social Command shell resolves correctly with and without an active client selection'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+
+- id: qd-wire-016
+  name: Wire map-stacking into the Social Command shell (confirm cross-link target, flag the operator-builder-vs-client-display mismatch)
+  prompt: |
+    Read docs/design/tarritrix-social-command.html directly for BOTH occurrences of "map-stacking" — PRIMARY_NAV ("Map Stacking Builder", external:true) and SECONDARY_NAV Grow group ("Map Stacking Integration") — before writing.
+
+    Per docs/audits/2026-08-04-command-center-gap-analysis.md Section 1, this is a CONFLICT, not a clean match: the canonical file's mockup describes an operator-side campaign-construction "builder" tool; the only real live implementation is `src\app\portal\map-stacking\page.tsx`, a read-only CLIENT-facing display of already-published pages and drip cadence (live-verified via Playwright 2026-08-03). There is no operator-side builder to link to.
+
+    Do not build a builder tool in this prompt (that would be a new, undiscussed feature, not wiring). Wire both nav occurrences as an operator-side READ-ONLY view of the same real data the client portal already shows, reusing `/api/portal/map-stacking/route.ts`'s query logic via a new operator-scoped route (client_id from query param instead of RLS self-scope, per the aggregate/scoped pattern used elsewhere in this queue) rather than duplicating the client-portal route directly.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\api\dashboard\map-stacking\route.ts — GET handler, getOperatorContext() auth, optional client_id param, reusing src\app\api\portal\map-stacking\route.ts's real query logic.
+
+    Write FILE 2: C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\MapStackingSection.tsx (used by both the PRIMARY_NAV client-workspace-style cross-link target and the SECONDARY_NAV registry entry — confirm with qd-shell-002 that PRIMARY_NAV's map-stacking link points here), registered in social-command's section-registry.ts under the SECONDARY_NAV key.
+
+    Live-verify with a real logged-in read against real page/cadence data.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: wire map-stacking into Social Command shell — read-only operator view of the real client-portal data, explicitly not the mockups builder-tool concept'; git push origin main. Report commit hash, and restate the operator-builder-vs-client-display gap explicitly in the report (do not silently resolve it as if it were never a conflict).
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/api/dashboard/map-stacking/route.ts
+
+- id: qd-wire-017
+  name: Wire storm-intel into the Social Command shell (external cross-link, confirmed by design)
+  prompt: |
+    Confirmed at authoring time: "storm-intel" is a social-command PRIMARY_NAV item with `external:true`. Re-confirm directly before proceeding.
+
+    Real backend per the audit: `/api/dashboard/storm-events/route.ts` (real, working) queries `storm_events` (37) + `client_storm_subscriptions` (62), currently rendered only via `IntelligenceRow.tsx` on the existing /dashboard root — no standalone route exists yet for this data.
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\app\dashboard\storm\page.tsx — standalone page reusing the existing /api/dashboard/storm-events/route.ts data, since DashboardSidebar.tsx already links to /dashboard/storm and that link is currently dead (see qd-fix-007) — this prompt gives that link a real destination rather than creating a second unrelated storm route.
+
+    Point the Social Command shell's storm-intel PRIMARY_NAV link at this new /dashboard/storm route.
+
+    Live-verify with a real logged-in read against real storm_events data.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: wire storm-intel cross-link in Social Command shell to a new standalone /dashboard/storm page, also closing the pre-existing dead sidebar link'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/app/dashboard/storm/page.tsx
+
+- id: qd-wire-018
+  name: Wire gsc-module into the Social Command shell (external cross-link, confirmed by design)
+  prompt: |
+    Confirmed at authoring time: "gsc-module" is a social-command PRIMARY_NAV item with `external:true`. Re-confirm directly before proceeding.
+
+    Real target: the Command Center shell's own "gsc" section, built in qd-wire-005 — read that prompt's outcome first. Point the Social Command shell's gsc-module PRIMARY_NAV link at /dashboard/command-center/gsc rather than building a third GSC surface.
+
+    Live-verify by clicking the link and confirming it lands on real, already-wired GSC data (not a stub).
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'fix: gsc-module cross-link in Social Command shell points at the Command Center gsc section built in qd-wire-005'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+
+- id: qd-wire-019
+  name: Wire client-portal into the Social Command shell (external cross-link, confirmed by design)
+  prompt: |
+    Confirmed at authoring time: "client-portal" is a social-command PRIMARY_NAV item with `external:true`. Re-confirm directly before proceeding.
+
+    Real target: `src\app\portal` — live production client portal, a genuinely separate authenticated app (client role, not operator role). An operator cannot simply "navigate into" a client's authenticated portal session. Do not build a client-impersonation or view-as feature in this prompt (that is a new feature with real security implications, not wiring). Wire the link as an explicit external/new-tab link to the portal's own login or a specific client's public-facing domain if one is configured (clients.custom_domain), with plain-English copy clarifying this opens the client's own portal, not an operator view of it.
+
+    Live-verify by clicking the link and confirming it opens correctly with no operator-session leakage into the portal context.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: wire client-portal cross-link in Social Command shell as an explicit external link, no operator view-as/impersonation built'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+
+- id: qd-wire-020
+  name: Wire master-admin into the Social Command shell (external cross-link, confirmed by design)
+  prompt: |
+    Confirmed at authoring time: "master-admin" is a social-command PRIMARY_NAV item with `external:true`. Re-confirm directly before proceeding.
+
+    Real target: `src\app\dashboard\master-admin\page.tsx` — 5 real panels, already master_admin-role-gated. Point the link there; do not weaken or duplicate the existing role gate. If the currently-authenticated user is not master_admin, the link should still be visible per the canonical file's own nav (external cross-links are shown regardless of destination-role in the mockup) but the destination route's own existing role check is the actual enforcement — confirm that check is unchanged and still correctly redirects/denies non-master_admin users, do not add a second, weaker check at the link level.
+
+    Live-verify as both a master_admin user (real access) and a non-master_admin user (real denial, matching existing behavior) — Six Laws Law 5 (WIRING) requires confirming roles are correct, not just that a link exists.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'fix: master-admin cross-link in Social Command shell points at the existing role-gated console, role enforcement unchanged'; git push origin main. Report commit hash and confirm both the master_admin-access and non-master_admin-denial cases were actually tested, not assumed.
+  gates:
+  - type: compile
+
+# ============================================================================
+# PROMPTS 23-37 — Honest stubs (15 prompts, one per named batch; see header
+# comment for the batch-10 split rationale reconciling the stated count)
+# ============================================================================
+
+- id: qd-stub-001
+  name: 'Honest stub batch: Programmatic SEO remainder (campaign-studio, content-clusters, templates, variables-data, publishing-scheduler)'
+  prompt: |
+    Read C:\Users\manag\Documents\Tarritrix\src\app\portal\backlinks\page.tsx first — this is the canonical honest-stub pattern for this entire queue: server component, zero data fetching, zero API calls, plain-English "Not yet available" copy, no agent names, no fabricated sample data, no Lorem ipsum, no example.com. Every stub in this prompt and every remaining stub prompt in this queue must match this exact pattern.
+
+    Per docs/audits/2026-08-04-command-center-gap-analysis.md Section 2.1: campaign-studio is NET-NEW (no "campaign" concept anywhere in the codebase). page-factory... wait, this batch is content-clusters (PARTIAL — real hub-and-spoke schema, no operator UI), templates (PARTIAL — page_type_templates table exists, zero code references, no UI), variables-data (PARTIAL — claimed_facts/page_claim_provenance exist, no live wiring or UI), publishing-scheduler (PARTIAL — CRON-01 exists but PRESENT+ORPHANED, see qd-fix-005).
+
+    For each of the 5 keys, register a stub component in the Command Center shell's section-registry.ts (built in qd-shell-001) at that exact key: C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\stubs\CampaignStudioStub.tsx, ContentClustersStub.tsx, TemplatesStub.tsx, VariablesDataStub.tsx, PublishingSchedulerStub.tsx. Each states in plain English what exists today (or explicitly "not yet built") without naming internal agent IDs or table names to the rendered UI — copy plain, code comments may cite the real table/agent for future reference.
+
+    Verify Select-String -Path each of the 5 new files -Pattern 'A-0[1-9]|A-1[0-9]|A-2[0-9]|A-3[0-9]|A-4[0-9]|Lorem|example\.com' -CaseSensitive:$false — must return NOTHING (CLAUDE.md /portal rule extended to this operator-visible convention for consistency, even though these are dashboard not portal routes — no agent-name leakage into rendered copy).
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: honest stubs for Programmatic SEO remainder (campaign-studio/content-clusters/templates/variables-data/publishing-scheduler)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/components/command-center/sections/stubs/CampaignStudioStub.tsx
+    - src/components/command-center/sections/stubs/ContentClustersStub.tsx
+    - src/components/command-center/sections/stubs/TemplatesStub.tsx
+    - src/components/command-center/sections/stubs/VariablesDataStub.tsx
+    - src/components/command-center/sections/stubs/PublishingSchedulerStub.tsx
+
+- id: qd-stub-002
+  name: 'Honest stub batch: Local SEO remainder (gbp, storm, location-manager, map-campaigns, citations, reviews)'
+  prompt: |
+    Same pattern as qd-stub-001 (read src/app/portal/backlinks/page.tsx first if not already familiar from that prompt). Per the audit: gbp is PARTIAL (portal page exists in Not-Connected state, A-48 HELD — this stub must not contradict or duplicate that existing Not-Connected page, it is a distinct operator-side nav key), storm is PARTIAL (real API, no page — do not duplicate qd-wire-017's new /dashboard/storm page; if that prompt already ran, this key should link to it instead of stubbing), location-manager is NET-NEW, map-campaigns is PARTIAL (A-04 only embeds single maps, no management UI), citations is PARTIAL (embedded in dashboard root only, not a standalone page), reviews is PARTIAL (A-14 real, no operator inbox UI).
+
+    For gbp specifically: A-48 is AGENTS.md-HELD — hard governance lock, stub only, never a full build, regardless of how much schema exists in SCHEMA_REGISTRY.md's Group 18 (Phase 2, not-live) slots.
+
+    Register 6 stub components in section-registry.ts: GbpStub.tsx, StormStub.tsx (or a redirect to /dashboard/storm if qd-wire-017 already shipped it — check before stubbing), LocationManagerStub.tsx, MapCampaignsStub.tsx, CitationsStub.tsx, ReviewsStub.tsx, under C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\stubs\.
+
+    Verify Select-String -Pattern 'A-0[1-9]|A-1[0-9]|A-2[0-9]|A-3[0-9]|A-4[0-9]|Lorem|example\.com' across all new files — must return NOTHING.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: honest stubs for Local SEO remainder (gbp/storm/location-manager/map-campaigns/citations/reviews)'; git push origin main. Report commit hash, and report explicitly whether storm was stubbed or redirected to an already-shipped qd-wire-017 page.
+  gates:
+  - type: compile
+
+- id: qd-stub-003
+  name: 'Honest stub batch: Search Intelligence remainder (keyword-intel, serp-intel, competitor-intel, opportunity-finder, ai-citation)'
+  prompt: |
+    Same pattern as qd-stub-001. Per the audit, corrected per this queue's own header: keyword-intel is now REAL for its underlying table (client_keyword_gap_analysis, fixed commit 4bf18ac) but still has no dedicated UI — this stub should say so honestly ("the data exists, no screen has been built yet") rather than the generic "not yet available" framing used for the genuinely net-new items, since it would be dishonest in the opposite direction to imply the data itself doesn't exist.
+
+    serp-intel: NET-NEW, hard governance lock — AGENTS.md gates the SERP API to "Phase 1.5 (no earlier)," not integrated. Stub only, never a full build regardless of future phase timing without explicit operator sign-off.
+
+    competitor-intel: NET-NEW, hard governance lock — maps to unbuilt Phase 2 agent A-24. Stub only.
+
+    opportunity-finder: PARTIAL (tenant_signals real, generic advisory feed, not opportunity-specific).
+
+    ai-citation: PARTIAL (A-47 built, its 4 tables fixed live in commit 4bf18ac per this queue's header — same honesty note as keyword-intel: say the backend now exists, no dedicated UI yet).
+
+    Register 5 stubs in section-registry.ts under C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\stubs\: KeywordIntelStub.tsx, SerpIntelStub.tsx, CompetitorIntelStub.tsx, OpportunityFinderStub.tsx, AiCitationStub.tsx.
+
+    Verify Select-String -Pattern 'A-0[1-9]|A-1[0-9]|A-2[0-9]|A-3[0-9]|A-4[0-9]|Lorem|example\.com' — must return NOTHING.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: honest stubs for Search Intelligence remainder (keyword-intel/serp-intel/competitor-intel/opportunity-finder/ai-citation)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+
+- id: qd-stub-004
+  name: 'Honest stub batch: Content Operations remainder (content-studio, briefs, entity-library, media-library)'
+  prompt: |
+    Same pattern as qd-stub-001. Per the audit: content-studio and briefs are both NET-NEW. entity-library is PARTIAL (extracted_evidence/entity_audit_log real, no UI). media-library is PARTIAL (evidence_items/job_evidence back A-18, no browsing UI) — note explicitly in this stub's copy-adjacent code comment that Contract 18 restricts evidence photo sourcing to web_upload/mobile_picker only, relevant if this key is ever built for real later.
+
+    Register 4 stubs in section-registry.ts under C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\stubs\: ContentStudioStub.tsx, BriefsStub.tsx, EntityLibraryStub.tsx, MediaLibraryStub.tsx.
+
+    Verify Select-String -Pattern 'A-0[1-9]|A-1[0-9]|A-2[0-9]|A-3[0-9]|A-4[0-9]|Lorem|example\.com' — must return NOTHING.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: honest stubs for Content Operations remainder (content-studio/briefs/entity-library/media-library)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+
+- id: qd-stub-005
+  name: 'Honest stub batch: Authority, all 5 (backlink-ops, outreach, digital-pr, link-inventory, risk-monitoring)'
+  prompt: |
+    Same pattern as qd-stub-001. Hard governance lock, non-discretionary: backlink-ops, link-inventory, and risk-monitoring all map to A-45 (Backlink Intelligence), AGENTS.md NOT STARTED, Phase 2 — no live tables (backlink_inventory/toxic_backlink_alerts/disavow_recommendations/competitor_backlink_gaps all confirmed absent). outreach maps to A-40 (External Signal Coordination), also NOT STARTED — and separately, Contract 60 prohibits automated outreach regardless of build status, so this key can never become a "send on my behalf" feature even once A-40 ships; the stub's copy should not imply otherwise. digital-pr is NET-NEW with no agent slot reserved anywhere.
+
+    Register 5 stubs in section-registry.ts under C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\stubs\: BacklinkOpsStub.tsx, OutreachStub.tsx, DigitalPrStub.tsx, LinkInventoryStub.tsx, RiskMonitoringStub.tsx.
+
+    Verify Select-String -Pattern 'A-0[1-9]|A-1[0-9]|A-2[0-9]|A-3[0-9]|A-4[0-9]|Lorem|example\.com' — must return NOTHING.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: honest stubs for Authority group, all 5 keys (A-45/A-40 held, digital-pr net-new)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+
+- id: qd-stub-006
+  name: 'Honest stub batch: Technical SEO remainder (site-audits, redirects, canonicals, page-experience)'
+  prompt: |
+    Same pattern as qd-stub-001. Before stubbing any of these 4, re-read renderTechnical() (the same shared dispatch function qd-wire-009/010/011 already confirmed handles crawling/indexation/schema) to check whether it ALSO covers these 4 keys with real bespoke content — if qd-wire-009/010/011 already ran and confirmed renderTechnical()'s actual scope, use that finding rather than re-investigating from scratch.
+
+    Per the audit: site-audits is PARTIAL (A-05 exists but is per-page validation, not a technical crawl audit — real gap, not just missing UI). redirects is NET-NEW confirmed absent BY DESIGN (BLUEPRINT.md: pages return HTTP 200, no redirect architecture — this stub's copy should reflect "not applicable to this platform's architecture," not "coming soon," since nothing is actually planned here). canonicals is PARTIAL (A-51 fires duplicate_canonical alerts into tenant_signals, no dedicated management view). page-experience is PARTIAL, thin (only A-05 Gate 14's build-time CLS check touches this space at all, no CWV/PageSpeed integration).
+
+    Register 4 stubs (or fewer, if renderTechnical() already covers some of these — report which) in section-registry.ts under C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\stubs\: SiteAuditsStub.tsx, RedirectsStub.tsx (worded as architecturally-not-applicable, not "coming soon"), CanonicalsStub.tsx, PageExperienceStub.tsx.
+
+    Verify Select-String -Pattern 'A-0[1-9]|A-1[0-9]|A-2[0-9]|A-3[0-9]|A-4[0-9]|Lorem|example\.com' — must return NOTHING.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: honest stubs for Technical SEO remainder (site-audits/redirects/canonicals/page-experience)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+
+- id: qd-stub-007
+  name: 'Honest stub batch: Automation remainder (workflow-builder, rules-triggers, scheduled-jobs, prompt-library)'
+  prompt: |
+    Same pattern as qd-stub-001. Per the audit: workflow-builder is NET-NEW. rules-triggers is PARTIAL, thin (validation_rules exists but scoped only to A-05 Gate 15, not a general rules engine — note this specific scope limit in the stub's code-comment). scheduled-jobs is PARTIAL — real cron-status page exists (`src\app\dashboard\system\cron-status\page.tsx`) but per STATE_OF_THE_BUILD.md most agent-cron routes aren't actually scheduled (see qd-fix-005); this stub, if built, should link to the existing cron-status page rather than duplicating it — check whether linking makes this a wire rather than a stub, and if so say so in the report rather than force-stubbing something that's actually already real. prompt-library is NET-NEW (the .forge/prompts/ directory is FORGE's own build-system prompts, unrelated to a runtime library).
+
+    Register stubs (or a link-through, per the scheduled-jobs note above) in section-registry.ts under C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\stubs\: WorkflowBuilderStub.tsx, RulesTriggersStub.tsx, ScheduledJobsStub.tsx (or a redirect), PromptLibraryStub.tsx.
+
+    Verify Select-String -Pattern 'A-0[1-9]|A-1[0-9]|A-2[0-9]|A-3[0-9]|A-4[0-9]|Lorem|example\.com' — must return NOTHING.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: honest stubs for Automation remainder (workflow-builder/rules-triggers/scheduled-jobs/prompt-library)'; git push origin main. Report commit hash, and report explicitly whether scheduled-jobs was stubbed or wired as a link-through to the existing cron-status page.
+  gates:
+  - type: compile
+
+- id: qd-stub-008
+  name: 'Honest stub batch: Delivery, all 5 (deployment-center, environments, publishing-history, rollbacks, delivery-incidents)'
+  prompt: |
+    Same pattern as qd-stub-001. Per the audit: deployment-center is PARTIAL (a real drift/health panel exists at the platform-health route, this is a full deploy console concept, bigger scope than that one panel — link to the existing panel rather than duplicating it, and stub the remaining deploy-history/trigger-console scope honestly). environments is NET-NEW, confirmed absent by design (this platform is single-environment, CLAUDE.md mandates `vercel --prod` only — word the stub as architecturally-not-applicable, matching the redirects treatment in qd-stub-006). publishing-history is PARTIAL (real data exists in two disconnected places, cron_run_log and a 14-day chart, no unified history page). rollbacks is PARTIAL, thin (Contract 89/30 mandate the capability, gbp_change_log precedent table not live, zero actual implementation). delivery-incidents is NET-NEW.
+
+    Register 5 stubs (with the deployment-center/environments wording notes above) in section-registry.ts under C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\stubs\: DeploymentCenterStub.tsx, EnvironmentsStub.tsx, PublishingHistoryStub.tsx, RollbacksStub.tsx, DeliveryIncidentsStub.tsx.
+
+    Verify Select-String -Pattern 'A-0[1-9]|A-1[0-9]|A-2[0-9]|A-3[0-9]|A-4[0-9]|Lorem|example\.com' — must return NOTHING.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: honest stubs for Delivery group, all 5 keys'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+
+- id: qd-stub-009
+  name: 'Honest stub batch: Command remainder (launch-center, approvals, incidents, tasks)'
+  prompt: |
+    Same pattern as qd-stub-001. Per the audit, corrected per this queue's header: approvals is now REAL (table fixed in commit 4bf18ac, real routes already exist at src\app\api\approvals\) — do NOT stub this key. Instead, register a real ApprovalsSection reusing the existing GovernanceApprovalsPanel.tsx component (already built for the main /dashboard shell) exactly as qd-wire-003/012 did for clients/agent-control — extract-and-share, do not duplicate.
+
+    launch-center is PARTIAL (underlying trigger endpoints are real — /api/operator/onboard-client, /api/agents/a-02/trigger — but no unified aggregating UI exists). incidents is NET-NEW, confirmed absent (docs/architecture/SPDI_RECONCILIATION.md:123: "does not exist... no backing table"). tasks is NET-NEW (stack_jobs is background pgmq infra, not an operator-facing task list — do not conflate the two in the stub's copy).
+
+    Write FILE 1: C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\ApprovalsSection.tsx (real, shared with the existing GovernanceApprovalsPanel), registered at the "approvals" key.
+
+    Register 3 stubs under C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\stubs\: LaunchCenterStub.tsx, IncidentsStub.tsx, TasksStub.tsx.
+
+    Verify Select-String -Pattern 'A-0[1-9]|A-1[0-9]|A-2[0-9]|A-3[0-9]|A-4[0-9]|Lorem|example\.com' across the 3 stub files (not ApprovalsSection.tsx, which legitimately reuses real agent-adjacent data) — must return NOTHING.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: wire approvals (now real per 4bf18ac) and honest-stub launch-center/incidents/tasks'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/components/command-center/sections/ApprovalsSection.tsx
+
+- id: qd-stub-010
+  name: 'Honest stub batch: Client Operations remainder (accounts-access, service-areas, brand-intelligence, competitors)'
+  prompt: |
+    Same pattern as qd-stub-001. Per the audit: accounts-access is NET-NEW (operator RBAC pages are a distinct concept from per-client portal-user access grants, which don't exist). service-areas is PARTIAL (service_area_heatmaps/service_area_mode real, no operator configuration UI). brand-intelligence is PARTIAL (client_brand_signatures real; client_brand_voice_model — fixed live in commit 4bf18ac per this queue's header — also now real; no operator UI for either). competitors is NET-NEW, hard governance lock (maps to unbuilt Phase 2 agent A-24, per BLUEPRINT.md).
+
+    Register 4 stubs in section-registry.ts under C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\stubs\: AccountsAccessStub.tsx, ServiceAreasStub.tsx, BrandIntelligenceStub.tsx (say plainly that both backing tables now exist as of today's earlier fix, no UI yet — same honesty note as qd-stub-003's keyword-intel/ai-citation), CompetitorsStub.tsx.
+
+    Verify Select-String -Pattern 'A-0[1-9]|A-1[0-9]|A-2[0-9]|A-3[0-9]|A-4[0-9]|Lorem|example\.com' — must return NOTHING.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: honest stubs for Client Operations remainder (accounts-access/service-areas/brand-intelligence/competitors)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+
+- id: qd-stub-011
+  name: 'Honest stub batch: Analytics (analytics — command-centers own top-level group, distinct from social-commands Grow>analytics handled in qd-stub-013)'
+  prompt: |
+    Same pattern as qd-stub-001. This is command-center.html's own top-level "Analytics" group (single item, label "Reporting") — do not confuse with social-command.html's separate "Grow > analytics" item, handled independently in qd-stub-013.
+
+    Per the audit: PARTIAL — real data is queried in multiple scattered places (page_performance_daily/page_indexation via /api/portal/search-performance, pages.published_at via /api/dashboard/charts, /api/dashboard/stats), but no unified reporting module exists, and gsc_search_analytics_daily (the real GSC-sourced analytics table, fixed live in qd-fix-004 if that prompt has already run — check before writing this stub, since if it has, the honest framing changes from "table doesn't exist" to "table exists, still no unified UI") has its migration written but not applied until qd-fix-004 runs.
+
+    Register 1 stub in section-registry.ts under C:\Users\manag\Documents\Tarritrix\src\components\command-center\sections\stubs\AnalyticsStub.tsx, worded to reflect whichever of the two states above is actually true at the time this prompt runs (check qd-fix-004's status in library-manifest.yaml or by direct live query, do not assume).
+
+    Verify Select-String -Pattern 'A-0[1-9]|A-1[0-9]|A-2[0-9]|A-3[0-9]|A-4[0-9]|Lorem|example\.com' — must return NOTHING.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: honest stub for command-center Analytics/Reporting group'; git push origin main. Report commit hash and which of the two gsc_search_analytics_daily states was found true.
+  gates:
+  - type: compile
+
+- id: qd-stub-012
+  name: 'Honest stub batch: social-command Operate (overview, accounts, calendar, composer, library)'
+  prompt: |
+    Same pattern as qd-stub-001, applied to the Social Command shell's section-registry.ts (built in qd-shell-002), not the Command Center one.
+
+    Per the audit, no dedicated social-media-management agent, route, or table exists anywhere (confirmed by grepping AGENTS.md/SCHEMA_REGISTRY.md/BEHAVIORAL_CONTRACTS.md/src/app/ for "social" — only Phase-3 Social Signal Monitoring and Phase-2+ Tier-4 Social Lead Intelligence, both explicitly deferred). overview/accounts/calendar/library are all NET-NEW. composer is PARTIAL only in the loosest sense — B2 Multi-Provider LLM Router (src/lib/llm/router.ts) is real generic infra a future composer could reuse, but no social-post agent or table exists; word this stub honestly as net-new capability, not as "partially built."
+
+    "overview" is this shell's own default route (set in qd-shell-002) — its stub is what an operator sees by default on landing in Social Command, so make sure the copy clearly explains the whole surface is not yet built, not just this one sub-item.
+
+    Register 5 stubs in section-registry.ts under C:\Users\manag\Documents\Tarritrix\src\components\social-command\sections\stubs\: OverviewStub.tsx, AccountsStub.tsx, CalendarStub.tsx, ComposerStub.tsx, LibraryStub.tsx.
+
+    Verify Select-String -Pattern 'A-0[1-9]|A-1[0-9]|A-2[0-9]|A-3[0-9]|A-4[0-9]|Lorem|example\.com' — must return NOTHING.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: honest stubs for social-command Operate group (overview/accounts/calendar/composer/library)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+
+- id: qd-stub-013
+  name: 'Honest stub batch: social-command Engage (inbox, listening)'
+  prompt: |
+    Same pattern as qd-stub-001, social-command section-registry.ts.
+
+    Per the audit: inbox is PARTIAL only via a different domain's tables (gbp_reviews/review_response_drafts give a review-reply analog, GBP-only, gated behind held A-48 — word this as "no cross-platform inbox exists" rather than implying anything is close to done). listening is PARTIAL, spec-only (BLUEPRINT.md's Social Signal Monitoring documented, explicitly "only build if Phase 1-2 data proves it's needed" — zero implementation).
+
+    Register 2 stubs in section-registry.ts under C:\Users\manag\Documents\Tarritrix\src\components\social-command\sections\stubs\: InboxStub.tsx, ListeningStub.tsx.
+
+    Verify Select-String -Pattern 'A-0[1-9]|A-1[0-9]|A-2[0-9]|A-3[0-9]|A-4[0-9]|Lorem|example\.com' — must return NOTHING.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: honest stubs for social-command Engage group (inbox/listening)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+
+- id: qd-stub-014
+  name: 'Honest stub batch: social-command Grow remainder (campaigns, storm-social, analytics, leads, audience, competitors)'
+  prompt: |
+    Same pattern as qd-stub-001, social-command section-registry.ts. Note: "map-stacking" (also in this Grow group) is handled separately in qd-wire-016 — do not re-stub it here, confirm it is already registered before finishing this prompt.
+
+    Per the audit: campaigns is NET-NEW. storm-social is PARTIAL, spec-only (BLUEPRINT.md's Storm Event -> GBP-post pipeline is Phase-3-gated and A-48 HELD — hard governance lock, stub only). "analytics" here is social-command's OWN Grow>analytics item (distinct from command-center's top-level Analytics group, handled in qd-stub-011) — PARTIAL (deep SEO/GBP/GSC analytics tables exist, zero ingestion for any social platform's post metrics). leads is PARTIAL (real conversions/signal_leads tables and a real portal leads page exist, but no column attributes a lead to a social post/platform — word this precisely, the leads data itself is real, the social attribution is not). audience is NET-NEW, hard governance lock (maps to BLUEPRINT.md's Tier 4 Social Lead Intelligence, Contract-31-protected, explicitly deferred until post-investor-meeting — never build ahead of that gate regardless of instruction elsewhere). competitors is PARTIAL (SEO/citation competitor intel exists via A-47, zero social-engagement competitor tracking).
+
+    Register 6 stubs in section-registry.ts under C:\Users\manag\Documents\Tarritrix\src\components\social-command\sections\stubs\: CampaignsStub.tsx, StormSocialStub.tsx, SocialAnalyticsStub.tsx (distinct filename from command-center's AnalyticsStub.tsx to avoid confusion), LeadsStub.tsx, AudienceStub.tsx, CompetitorsStub.tsx (distinct filename from command-center's CompetitorsStub.tsx from qd-stub-010).
+
+    Verify Select-String -Pattern 'A-0[1-9]|A-1[0-9]|A-2[0-9]|A-3[0-9]|A-4[0-9]|Lorem|example\.com' — must return NOTHING.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: honest stubs for social-command Grow remainder (campaigns/storm-social/analytics/leads/audience/competitors)'; git push origin main. Report commit hash, and confirm map-stacking was found already registered from qd-wire-016 rather than re-stubbed here.
+  gates:
+  - type: compile
+
+- id: qd-stub-015
+  name: 'Honest stub batch: social-command Govern (automation, media, governance, integrations, settings, approvals)'
+  prompt: |
+    Same pattern as qd-stub-001, social-command section-registry.ts.
+
+    Per the audit: automation is NET-NEW (no user-configurable rules engine; CRON jobs are code-level, not user-facing). media is NET-NEW for social creative assets specifically (evidence_items/job_evidence are Contract-18-restricted job photos, a different domain; gbp_media is Phase-2/A-48-owned, held). governance is PARTIAL (client_brand_signatures and client_brand_voice_model both real as of commit 4bf18ac, plus the existing dashboard/governance page — but neither is an approved/prohibited-claims list like the mockup's own BRAND_RULES concept; word this precisely, don't overclaim). integrations is PARTIAL (client_integrations/A-19 real but scoped to field-service/CRM/call-tracking only, zero social-platform OAuth). settings is PARTIAL, thin (the platform-wide settings-surface pattern exists elsewhere, no social-specific settings schema). approvals here is social-command's OWN Govern>approvals item — this is generic operator approval infra (now real per commit 4bf18ac, same table as qd-stub-009's Command>approvals) but NOT scoped to social-post approval specifically; link to the same real ApprovalsSection built in qd-stub-009 rather than re-stubbing or re-building a parallel approvals surface, and note in this prompt's report that social-post-specific approval scoping remains unbuilt even though generic approval infra is real.
+
+    Register 5 stubs (automation/media/governance/integrations/settings) in section-registry.ts under C:\Users\manag\Documents\Tarritrix\src\components\social-command\sections\stubs\, and register "approvals" -> the existing ApprovalsSection component (imported from command-center's sections, or moved to a shared location if that's cleaner — do not duplicate the component).
+
+    Verify Select-String -Pattern 'A-0[1-9]|A-1[0-9]|A-2[0-9]|A-3[0-9]|A-4[0-9]|Lorem|example\.com' across the 5 stub files (not the shared ApprovalsSection) — must return NOTHING.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'feat: honest stubs for social-command Govern remainder, real approvals reused from qd-stub-009'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+
+# ============================================================================
+# PROMPTS 38-44 — Fixes (7 prompts, root-cause-verified, live-verified after)
+# ============================================================================
+
+- id: qd-fix-001
+  name: 'Fix root cause: auth.admin.listUsers() "Database error finding users" failure'
+  prompt: |
+    Found 2026-08-04 during the Clients-screen wiring session (STATE_OF_THE_BUILD.md, "canonical UI wiring — 1 of 7 items wired"): supabase.auth.admin.listUsers() returns error "Database error finding users" for this project (jhiplicikizdpdsguimg) regardless of pagination parameters. Confirmed NOT a pagination-size issue (reproduced identically with no options, {perPage:100}, and {perPage:1000}). Confirmed NOT an anomalous-row issue (queried auth.users directly for null email/null metadata/soft-deleted rows — none found). Confirmed live-reproduced in 2 places: src\app\api\operator\clients\route.ts (this queue's own qd-wire-003 dependency) and src\app\dashboard\users\page.tsx (lines 66, 111) — the latter's Email and Granted By columns show "Unknown" for every row in production today.
+
+    Do not repeat the same 3 already-ruled-out diagnoses (pagination, anomalous rows, wrong client type — service-role client already confirmed correctly configured). Investigate further: check Supabase project auth settings for anything that could make the admin Users API specifically fail while normal auth (login, session lookup) works fine (rate limiting on the admin API specifically, a project-level auth configuration flag, GoTrue version/compatibility issue between the installed @supabase/supabase-js version and this project's GoTrue version — check package.json's @supabase/supabase-js version against Supabase's own changelog for known admin.listUsers() regressions). If Supabase MCP tool access is available, check for any admin-API-specific logs or settings not visible via plain SQL.
+
+    If a real fix is found: apply it, then live-verify by re-running the exact call from both affected files and confirming real emails resolve (not "Unknown"/blank) for at least 3 real users.
+
+    If no root cause can be confirmed after genuine investigation (not guessed): report this explicitly as a confirmed-unresolved infrastructure issue, do NOT ship a workaround that fabricates data or silently masks the failure, and leave both affected files' existing graceful-degradation fallback (blank/"Unknown") in place exactly as it already is.
+
+    pnpm tsc --noEmit — 0 errors.
+
+    git add -A; git commit -m 'fix: investigate and resolve (or confirm-unresolved) the auth.admin.listUsers Database error finding users failure'; git push origin main. Report commit hash and state explicitly which outcome occurred.
+  gates:
+  - type: compile
+
+- id: qd-fix-002
+  name: Apply A-46 directory_registry/directory_submissions migration live
+  prompt: |
+    Root cause per docs/audits/2026-08-04-command-center-gap-analysis.md Section 3 item 2: A-46 (Directory Registration Agent) has fully-wired application code (agent, trigger route, dashboard panel — DirectoriesCitationsPanel.tsx, /api/dashboard/directories/route.ts) whose backing migration was written but never applied. Confirm via direct information_schema.tables query against jhiplicikizdpdsguimg that directory_registry and directory_submissions are genuinely still absent before proceeding (do not assume the audit finding is still current — re-verify).
+
+    Locate the existing written-not-applied migration file for these two tables (search supabase/migrations/ for "directory_registry" or "directory_submissions" — likely 20260728390000_a46_directory.sql per AGENTS.md's citation). Read it in full. Confirm its column shapes still match what DirectoriesCitationsPanel.tsx and the directories API route actually query (read both files' real queries first) — if there's drift between the written migration and what the live code expects, reconcile using the live code's actual expectations as authoritative (the code is what's running), not the migration file's original design, and note the discrepancy explicitly if one exists.
+
+    Apply the migration live via Supabase MCP apply_migration.
+
+    Live-verify: query information_schema.tables to confirm both tables now exist, confirm RLS is enabled with a Pattern A policy (Contract 91 — no new Pattern C), confirm GRANT SELECT/INSERT/UPDATE/DELETE to service_role and SELECT to authenticated exist (Contract 64), then load /api/dashboard/directories/route.ts's real response and confirm it returns real (even if empty) data instead of an error.
+
+    Update SCHEMA_REGISTRY.md with the new table entries and applied-status evidence, in the same commit as any code change.
+
+    git add -A; git commit -m 'fix: apply A-46 directory_registry/directory_submissions migration live, closing the DirectoriesCitationsPanel data gap'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+
+- id: qd-fix-003
+  name: Apply A-47's 4 citation tables migration live
+  prompt: |
+    Root cause per the audit Section 3 item 2: A-47 (LLM Citation Tracker) has fully-wired application code whose 4 backing tables (target_query_lists, llm_citation_events, llm_citation_summary, citation_displacement_alerts) were written but never applied. Confirm via direct information_schema.tables query that all 4 are genuinely still absent before proceeding.
+
+    Locate the existing written-not-applied migration (20260728400000_a47_llm_citation.sql per AGENTS.md's citation). Read it in full, and read src\lib\agents\a-47-llm-citation-tracker.ts's actual write queries to confirm the migration's column shapes still match what the live agent code expects — reconcile using the live code as authoritative if there's drift, same convention as qd-fix-002.
+
+    Apply the migration live via Supabase MCP apply_migration.
+
+    Live-verify: confirm all 4 tables exist, RLS Pattern A + grants correct (same checklist as qd-fix-002), then confirm A-47's trigger route (/api/agents/a-47/trigger) can now write a real row without erroring — a real test invocation, not just a compile check.
+
+    Update SCHEMA_REGISTRY.md with the new table entries and applied-status evidence, in the same commit.
+
+    git add -A; git commit -m 'fix: apply A-47 LLM citation tables migration live (target_query_lists, llm_citation_events, llm_citation_summary, citation_displacement_alerts)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+
+- id: qd-fix-004
+  name: Apply gsc_search_analytics_daily migration live
+  prompt: |
+    Root cause per the audit: gsc_search_analytics_daily (the real GSC-sourced analytics table cited in AGENTS.md line ~1880) has its migration written but not yet applied. Confirm via direct information_schema.tables query that it is genuinely still absent before proceeding. This table is part of the larger GSC Control Center migration (supabase/migrations/20260802000000_gsc_control_center.sql per SCHEMA_REGISTRY.md's own note that this migration was blocked by a prior Supabase MCP permission denial, not a code problem) — read that full migration file, and read SCHEMA_REGISTRY.md's Group 20 entry for the complete list of 5 tables it creates (gsc_properties, gsc_search_analytics_daily, gsc_url_inspections, gsc_sitemaps, gsc_manual_check_attestations) and the documented reconciliation-flag note about gsc_url_inspections' overlap with the existing page_indexation table.
+
+    Attempt Supabase MCP apply_migration for the full 5-table migration (not just the one table this prompt is named for — SCHEMA_REGISTRY.md's own migration file bundles all 5, and splitting it would diverge from the versioned migration file, violating Contract 4). If the permission-denial that blocked this previously reproduces, report that explicitly rather than working around it, matching this project's established disclosure convention (SCHEMA_REGISTRY.md's own "WRITTEN, NOT YET APPLIED" language) — do not claim success without a verified live query proving it.
+
+    If it applies successfully: live-verify all 5 tables exist, RLS Pattern A + Contract 64 grants correct, and confirm which live code (if any) can now write to gsc_search_analytics_daily specifically (A-49 GSC Intelligence Engine, per AGENTS.md — read its actual write path to confirm, don't assume it writes here just because the table now exists).
+
+    Update SCHEMA_REGISTRY.md's Group 20 status in the same commit, either to APPLIED with evidence or restating WRITTEN, NOT YET APPLIED with the specific blocker if it reproduces.
+
+    git add -A; git commit -m 'fix: apply GSC Control Center migration live (gsc_search_analytics_daily and 4 sibling tables)'; git push origin main. Report commit hash and the exact outcome (applied-and-verified vs. still-blocked-and-why).
+  gates:
+  - type: compile
+
+- id: qd-fix-005
+  name: Register publishing-scheduler CRON-01 in vercel.json, confirm the locked 15/day drip cap fires on schedule
+  prompt: |
+    Root cause per AGENTS.md and multiple STATE_OF_THE_BUILD.md session logs: cron-01-drip-publisher (the mechanism enforcing the CLAUDE.md-locked 15 pages/client/day drip cap) has a complete route implementation at src\app\api\cron\cron-01-drip-publisher\route.ts but carries no vercel.json schedule entry — it does not fire in production today. Read vercel.json's current crons array in full first and confirm this is still true (re-verify, do not assume the prior audit finding is still current).
+
+    Read src\app\api\cron\cron-01-drip-publisher\route.ts's own logic in full, specifically for Contract 15's ±20% variance / random time-offset requirement — confirm whether the jitter is implemented inside the route handler itself (required, since a fixed cron trigger time has no built-in jitter) or missing. This exact check was flagged as a possible separate gap in queue-23's fix-004 — confirm definitively here rather than re-flagging it as still-unknown.
+
+    Confirm the drip cap value the route actually enforces is 15/day, not the old superseded 40/day figure (CLAUDE.md's hard rule) — read the route's actual cap-lookup logic, do not assume from the filename alone.
+
+    Add the cron-01-drip-publisher entry to vercel.json's crons array at "0 3 * * *" (3am UTC daily, per BLUEPRINT.md/AGENTS.md spec), matching the exact JSON structure of the existing 3 entries.
+
+    Verify the JSON is valid (Get-Content vercel.json | ConvertFrom-Json in PowerShell) before committing. pnpm tsc --noEmit — 0 errors.
+
+    Live-verify after deploy: this cron cannot be "tested firing on schedule" synchronously in this session, so live-verification here means confirming via the Vercel API (per scripts/verify-deployment.ts's own pattern of reading deployment metadata rather than trusting CLI output) that the cron entry is registered against the live production deployment, and separately confirming the route itself, invoked manually once, correctly applies the 15/day cap and the jitter logic (if confirmed present) against a real test client without exceeding the cap.
+
+    git add -A; git commit -m 'fix: register cron-01-drip-publisher in vercel.json, confirm 15/day cap and Contract 15 jitter'; git push origin main. Report commit hash, the confirmed drip-cap value found in the route's own logic, and whether Contract 15's jitter was confirmed present or found genuinely missing (if missing, do not add it in this same prompt — report it as a separate follow-up per Contract 57, one work product per prompt).
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - vercel.json
+
+- id: qd-fix-006
+  name: Fix SCHEMA_REGISTRY.md Table 84/87 and 85/88 numbering inconsistency
+  prompt: |
+    Root cause per docs/audits/2026-08-04-command-center-gap-analysis.md Section 3 item 5: SCHEMA_REGISTRY.md internally numbers user_roles as both Table 87 (index at line ~219) and Table 84 (its own section header, line ~716), and user_actions as both Table 88 (index line ~220) and Table 85 (section header line ~729). Read both the Group index tables and both full section entries in SCHEMA_REGISTRY.md directly before touching anything — confirm the exact current line numbers, they may have shifted since the audit was written.
+
+    Determine which number is correct by cross-referencing the migration files that actually created these tables (search supabase/migrations/ for "user_roles" and "user_actions" CREATE TABLE statements) and any other places in SCHEMA_REGISTRY.md, AGENTS.md, or BEHAVIORAL_CONTRACTS.md that reference these tables by number — the correct number is whichever one is used consistently everywhere else, not whichever appears first in the file.
+
+    Fix the incorrect occurrence(s) to match — do not renumber every other table to accommodate a change; fix only the 2 inconsistent references. If Table 84 and Table 85 in the Group 15 "Operator Dashboard" section (operator_action_queue, system_health_snapshots, operator_preferences per the existing Group 15 table) are the actual correct owners of those numbers, confirm that directly and make sure fixing user_roles/user_actions doesn't create a NEW collision with those.
+
+    Verify with a grep across SCHEMA_REGISTRY.md for "Table 84", "Table 85", "Table 87", "Table 88" after the fix — every reference must now be self-consistent, one canonical number per table, zero remaining duplicates.
+
+    git add SCHEMA_REGISTRY.md; git commit -m 'fix: resolve SCHEMA_REGISTRY.md user_roles/user_actions Table 84/87 and 85/88 numbering inconsistency'; git push origin main. Report commit hash and the final, single correct number for each table.
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - path: SCHEMA_REGISTRY.md
+      path_class: shared_canonical
+
+- id: qd-fix-007
+  name: Fix or remove DashboardSidebar.tsx dead links to /dashboard/queue, /dashboard/storm, /dashboard/analytics, /dashboard/system
+  prompt: |
+    Root cause per docs/audits/2026-08-04-command-center-gap-analysis.md Section 1 Part B: src\components\dashboard\DashboardSidebar.tsx links to 4 routes with no matching page.tsx — /dashboard/queue, /dashboard/storm, /dashboard/analytics, /dashboard/system (only /dashboard/system/cron-status exists under that last one). Read the sidebar file and confirm this is still true via Test-Path for each of the 4 exact paths before changing anything.
+
+    For /dashboard/storm specifically: if qd-wire-017 has already run in this queue, it created a real src\app\dashboard\storm\page.tsx — confirm that first; if it exists, this link is already fixed and needs no further action beyond confirming it. For the other 3 (/dashboard/queue, /dashboard/analytics, /dashboard/system as a standalone page distinct from /dashboard/system/cron-status): these are not part of this queue's build scope (no prompt above creates them), so the correct fix here is REMOVAL of the dead link from the sidebar, not fabricating a placeholder page to make the link technically resolve — a link to a real, purposeful page is different from a link to a stub built only to satisfy this fix, and CLAUDE.md's scope-discipline rule against silent stub-scaffolding applies here.
+
+    Remove the 3 (or 4, if storm wasn't fixed by qd-wire-017 for some reason — check and report) dead sidebar entries. Do not remove /dashboard/system/cron-status's own link if the sidebar links to that specific sub-path correctly elsewhere — only remove genuinely dead top-level entries.
+
+    pnpm tsc --noEmit — 0 errors. pnpm run build — must succeed. Click through the remaining sidebar links in a real browser session and confirm zero dead links remain.
+
+    git add -A; git commit -m 'fix: remove dead DashboardSidebar.tsx links (or confirm storm was already fixed by qd-wire-017), zero fabricated placeholder pages added'; git push origin main. Report commit hash and which of the 4 links were removed vs. already-fixed.
+  gates:
+  - type: compile
+  - type: build
+
+# ============================================================================
+# PROMPTS 45-47 — Six Laws verification, governance sync, final commit
+# ============================================================================
+
+- id: qd-verify-001
+  name: Six Laws verification — wiring cluster (qd-wire-001 through qd-wire-020)
+  prompt: |
+    For each of the 20 items wired (or confirmed cross-linked, or confirmed honest-stubbed with a stated reason) in qd-wire-001 through qd-wire-020: run the Six Laws check per AGENTS.md's own definition (SCHEMA/API/UI/DATA/WIRING/VERIFICATION) and produce a table with one row per item, one column per law, PASS/FAIL/N-A (N-A only for items that prior prompts confirmed as legitimately cross-linked with no separate screen, or honest-stubbed with the gap explicitly stated — not for anything silently skipped).
+
+    VERIFICATION (Law 6) specifically requires a real logged-in read against live data for every item marked wired in this cluster — re-run this now as a single pass across all 20, do not trust each prompt's own self-reported verification without re-checking, since prior prompts may have run in a different session context. Use a real Playwright script or a real manual browser session logged in as the test operator; report the literal data observed (business names, counts, real values) for at least the items with the richest data (clients, gsc, agent-control) as verbatim evidence, per Contract 51 (verbatim reporting standard) — not "confirmed working," the actual values seen.
+
+    Report any item where a prior prompt's self-reported outcome does not match what this re-verification pass actually finds — do not silently accept a discrepancy, flag it explicitly.
+
+    git add -A; git commit -m 'docs: Six Laws verification pass, wiring cluster (qd-wire-001 through qd-wire-020)'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+
+- id: qd-verify-002
+  name: Six Laws verification — stub cluster (qd-stub-001 through qd-stub-015)
+  prompt: |
+    For each of the honest-stub items across qd-stub-001 through qd-stub-015: confirm Law 3 (UI — real UI is rendered, zero placeholders in the sense of broken/crashing UI; a clearly-labeled "not yet available" stub is NOT a Contract violation, a silently-fabricated fake data table would be) and Law 4 (DATA — zero mocks, zero fabricated data) by re-running the Select-String pattern check from every qd-stub-* prompt across ALL stub files created in this queue in one combined pass, not trusting each prompt's individual self-report. Report the full verbatim Select-String output (per Contract 51) — if it returns anything at all across any file, that is a real finding to report, not something to quietly fix and not mention.
+
+    Confirm every item this cluster was supposed to stub actually has a registered entry in the relevant section-registry.ts (command-center's or social-command's) — list every key from the 14 numbered batches in the operator's original instruction (recall: batch 10 was split into qd-stub-010/qd-stub-011 in this queue) and confirm each resolves to a real component, not a 404 or an unregistered fallback to the generic stub that was never actually customized for that key.
+
+    Report any item honest-stubbed here that a later prompt (qd-fix-002 through qd-fix-004, which apply live migrations for A-46/A-47/GSC tables) may have made stale — e.g. if ai-citation's stub still says "not yet available" after qd-fix-003 applied A-47's tables live, that stub's copy is now inaccurate and should be corrected in this prompt to reflect "backend now exists, no UI yet" rather than left overclaiming non-existence.
+
+    git add -A; git commit -m 'docs: Six Laws verification pass, stub cluster (qd-stub-001 through qd-stub-015), stub copy corrected where later fixes changed backend availability'; git push origin main. Report commit hash.
+  gates:
+  - type: compile
+
+- id: qd-verify-003
+  name: Final combined pass — governance docs, STATE_OF_THE_BUILD.md, audit-doc status markers, commit, push
+  prompt: |
+    This is the final prompt in the queue. Do not mark this queue complete until every item below is done and verified, not assumed.
+
+    Re-run pnpm tsc --noEmit and pnpm run build one final time across the whole repo — 0 errors, full route table generated, both new shells (/dashboard/command-center, /dashboard/social-command) present.
+
+    Update SCHEMA_REGISTRY.md: confirm every table touched by qd-fix-002/003/004 has a correct, live-verified entry (re-query information_schema.tables directly for each, do not trust this queue's own earlier self-reports without a fresh check) and that the Table 84/87/85/88 fix from qd-fix-006 is still consistent.
+
+    Update AGENTS.md: for every agent this queue newly exposed a UI for (A-06 internal-linking, A-11 content-refresh, A-19 integrations, A-03/A-08/A-44 technical-SEO screens, etc. — the full list is whatever qd-wire-001 through qd-wire-020 actually confirmed built, read each prompt's own commit for the real list, do not guess from this file's plan alone since several of those prompts branch into stub-instead-of-build outcomes), add a one-line "Operator UI:" note to that agent's AGENTS.md entry citing the new route.
+
+    Update BEHAVIORAL_CONTRACTS.md only if any prompt in this queue's actual execution surfaced a genuine new contract-worthy finding (e.g. if qd-fix-001's listUsers() investigation found a root cause requiring a new operational rule) — if nothing rose to that bar, state explicitly "no BEHAVIORAL_CONTRACTS.md change needed, reviewed" rather than skipping the check silently.
+
+    Update STATE_OF_THE_BUILD.md with a full session-log entry: every item from the operator's original 47-prompt instruction, its final disposition (WIRED / CROSS-LINKED / HONEST-STUB / FIXED / STILL-BLOCKED), one line each, plus the qd-verify-001/002 discrepancy findings if any were found.
+
+    Update docs/audits/2026-08-04-command-center-gap-analysis.md: for every one of the 100 original nav items, add or update a status marker — WIRED (built, live-verified), HONEST-STUB (built, explicitly not-yet-available, per the backlinks pattern), FIXED (schema/infra gap closed, no UI change), or leave the original REAL/PARTIAL/NET-NEW rating untouched only for anything this queue genuinely did not touch (there should be none among the 100, since this queue's own header claims full coverage across wiring+stub batches — if any item is found untouched, report that explicitly as a queue-authoring gap, do not silently leave it unmarked).
+
+    Verify every changed file in this final prompt is UTF-8 with no BOM and 0 replacement characters before staging.
+
+    git add -A; git commit -m 'docs: queue-24 final verification — governance docs synced, STATE_OF_THE_BUILD.md and gap-analysis audit fully marked, all 100 nav items dispositioned'; git push origin main. Report commit hash and the final disposition counts (how many WIRED, CROSS-LINKED, HONEST-STUB, FIXED, STILL-BLOCKED).
+  gates:
+  - type: compile
+  - type: build
+  - type: deploy_verify

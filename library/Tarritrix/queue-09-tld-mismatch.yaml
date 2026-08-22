@@ -1,0 +1,18 @@
+governance:
+- BLUEPRINT.md
+- STATE_OF_THE_BUILD.md
+- SCHEMA_REGISTRY.md
+- BEHAVIORAL_CONTRACTS.md
+- AGENTS.md
+project: tarritrix-cleanup-repairs
+prompts:
+- id: tld-mismatch-001
+  name: tenant-resolver TLD Mismatch Investigation and Fix
+  prompt: "Read src/lib/tenant-resolver.ts in full first - it is confirmed to exist exactly as follows:\n\nTARRITRIX_APP_SUBDOMAIN_PATTERN = /^([a-z0-9-]+)\\.tarritrix\\.app$/i\n\nresolveTenant() only extracts a subdomain match for *.tarritrix.app hosts. For any other host (including tarritrix.com or a subdomain of tarritrix.com), it falls through to matching only against clients.custom_domain - it will NEVER match a *.tarritrix.com subdomain pattern, only an exact custom_domain value.\n\nDETERMINE THE REAL PRODUCTION DOMAIN before touching this file:\n1. Check next.config.js, middleware.ts, and vercel.json for any canonical domain reference.\n2. Check the live Vercel project's actual production domain via vercel ls --prod or vercel inspect against the aliased production URL - confirm whether tarritrix.com or tarritrix.app is genuinely the live customer-facing domain.\n3. Check A-20's implementation (src/lib/agents/a-20-multi-tenant-hosting.ts, built earlier this session) for what base domain it uses when constructing subdomains - this is the other real, current source of truth for the intended domain and must agree with whatever you find in step 2.\n\nIF tarritrix.com is the real production domain and tarritrix.app is stale/wrong: fix TARRITRIX_APP_SUBDOMAIN_PATTERN to match tarritrix.com instead, and grep the codebase for every other tarritrix.app reference (sitemap/robots routes, any hardcoded domain string) and fix those too in the same commit - do not leave a partial fix.\n\nIF both are genuinely intentional (e.g. tarritrix.app is a real secondary/legacy domain still in use): do not change the code. Document exactly why both exist and what each is for in STATE_OF_THE_BUILD.md, with the real evidence you found in steps 1-3, and stop.\n\nRun pnpm tsc --noEmit after any code change - 0 errors required. If code changed, write or update a test in tests/unit/lib/tenant-resolver.test.ts confirming the corrected domain pattern matches real production subdomains and rejects the wrong one.\n\nUpdate STATE_OF_THE_BUILD.md with the real, live-verified outcome - fixed with evidence, or confirmed-intentional with evidence. Do not mark resolved without live verification.\n\nCommit and push."
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - src/lib/tenant-resolver.ts
+    - path: STATE_OF_THE_BUILD.md
+      path_class: shared_canonical

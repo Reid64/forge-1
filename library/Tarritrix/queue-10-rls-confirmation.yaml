@@ -1,0 +1,18 @@
+governance:
+- BLUEPRINT.md
+- STATE_OF_THE_BUILD.md
+- SCHEMA_REGISTRY.md
+- BEHAVIORAL_CONTRACTS.md
+- AGENTS.md
+project: tarritrix-cleanup-repairs
+prompts:
+- id: rls-confirm-001
+  name: RLS Disabled Tables - Real Investigation and Classification of 14 Tables
+  prompt: "CONFIRMED FINDING (already verified via live query against project tarritrix, jhiplicikizdpdsguimg - do not re-query unless double-checking a specific row):\n\n18 public-schema tables have RLS disabled: archetype_library, composition_recipes, directory_registry, diversity_constraints, llm_provider_health, llm_routing_config, module_library, operator_action_queue, page_type_templates, palette_library, pricing_tiers, spatial_ref_sys, storm_event_assets, storm_events, storm_ingestion_log, system_health_snapshots, typography_library, validation_rules.\n\nSCHEMA_REGISTRY.md line 48 states 'RLS is enabled on every table — no exceptions,' which directly contradicts this live result.\n\nAlready resolved, do not re-investigate: spatial_ref_sys is the PostGIS system table SCHEMA_REGISTRY.md's own lines 52-54 exclude from the application-table count. directory_registry's own SCHEMA_REGISTRY.md entry (Table 118, Group 22) already documents this as intentional public reference/catalog data, same convention as module_library/page_type_templates.\n\nREMAINING 14 TABLES NEED REAL INVESTIGATION, not assumption: archetype_library, composition_recipes, diversity_constraints, llm_provider_health, llm_routing_config, module_library, operator_action_queue, page_type_templates, palette_library, pricing_tiers, storm_event_assets, storm_events, storm_ingestion_log, system_health_snapshots, typography_library, validation_rules.\n\nFor EACH of these 14:\n1. Read that table's own migration file (find via grep for CREATE TABLE <name>) to see if the original migration's comments state an intent.\n2. Read SCHEMA_REGISTRY.md's own entry for that table (if one exists) for any stated rationale.\n3. Classify as: (a) genuinely intentional platform-reference-data like directory_registry (name the specific evidence), (b) a genuine security gap needing a real RLS policy, or (c) unclear/needs an operator decision.\n\nDo NOT write or apply any RLS-enabling SQL in this prompt - this is confirmation and classification only.\n\nProduce docs/audits/rls-disabled-tables-confirmation.md with a full table: table name | classification (a/b/c) | evidence found | recommended next action.\n\nUpdate SCHEMA_REGISTRY.md's line 48 claim to be accurate - either list the real, confirmed-intentional exceptions explicitly (matching directory_registry's existing entry style) instead of claiming zero exceptions, or flag the ones needing a decision as open items.\n\nCommit and push."
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - docs/audits/rls-disabled-tables-confirmation.md
+    - path: SCHEMA_REGISTRY.md
+      path_class: shared_canonical

@@ -1,0 +1,17 @@
+governance:
+- BLUEPRINT.md
+- STATE_OF_THE_BUILD.md
+- SCHEMA_REGISTRY.md
+- BEHAVIORAL_CONTRACTS.md
+- AGENTS.md
+project: tarritrix-cleanup-repairs
+prompts:
+- id: escalate-decision-001
+  name: escalateSignal Decision Options Document
+  prompt: "Read STATE_OF_THE_BUILD.md's escalateSignal() 405 entry and grep the codebase for every real call site of escalateSignal first.\n\nThis is a decision-support document ONLY - no code changes, no schema changes, no migration.\n1. Document the exact current 405 behavior with the real HTTP route and real client-side trigger.\n2. Read tenant_signals' real schema and what its real consumers (A-42, A-49, A-50, A-51, whichever actually reads/writes it) currently do with a signal's lifecycle - ground your description of what 'escalating' could mean in this actual data, not an abstract guess.\n3. Present exactly 3 concrete implementation options: an escalated boolean column, an escalation_level enum, and a separate escalations table - for each, state the real schema change required and which real UI surfaces (name them) would need to change.\n4. State one clear recommendation with 2-3 sentences of reasoning, explicitly labeled as a recommendation for operator review, not a decision already made.\n5. Write to docs/decisions/escalate-signal-options.md.\nCommit this file only."
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - path: docs/decisions/escalate-signal-options.md
+      path_class: shared_canonical
