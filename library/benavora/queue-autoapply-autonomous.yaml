@@ -1,0 +1,65 @@
+project: benavora
+governance:
+- BLUEPRINT_v2.md
+- SCHEMA_REGISTRY_v2.md
+- AGENTS_v2.md
+- AUTONOMOUS_PLATFORM_VISION.md
+- FEATURE_REGISTRY_v2.md
+- WORKER_ARCHITECTURE_v2.md
+- STATE_OF_THE_BUILD.md
+- STANDING_DIRECTIVES.md
+prompts:
+- id: autoapply-auto-001
+  name: Governance sync and AutoApply autonomous mode architecture
+  prompt: |
+    First sync governance docs: $repo = 'C:\Users\manag\Documents\benavora'; $forge = 'C:\Users\manag\Documents\FORGE\projects\benavora'; Get-ChildItem $repo -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName (Join-Path $forge $_.Name) -Force }
+
+    Read src/app/(dashboard)/autoapply/ directory listing in full.
+    Read worker/autoapply-processor.ts or similar AutoApply worker file in full.
+    Read WORKER_ARCHITECTURE_v2.md section on AutoApply in full.
+    Read AUTONOMOUS_PLATFORM_VISION.md section on AutoApply Full Autonomous Mode.
+
+    Create worker/autoapply-autonomous-orchestrator.ts:
+    Export async function runAutonomousAutoApply(supabase: SupabaseClient): Promise<void>
+
+    This function runs nightly at 3:00 AM CST. For each org WHERE stripe_subscription_status IN ('active','trialing') AND plan IN ('enterprise','consultant') AND auto_autoapply_enabled=true (add this column to org_autonomous_config via ALTER TABLE):
+    1. Load org AutoApply profile (corporate_prospects with status=new or retry, limit by org config max_nightly_submissions).
+    2. For each prospect: check if AutoApply session already ran for this prospect in last 30 days. If yes: skip.
+    3. Queue AutoApply session by inserting into autoapply_queue (or equivalent existing table) with: org_id, prospect_id, mode=autonomous, scheduled_for=tonight, priority by intent_score if available.
+    4. Log decision via agent_decisions: decisionType=autoapply_queued, reasoning=Queued AutoApply for company + name + intent_score, actionTaken=inserted_autoapply_queue_item.
+    5. After queuing: trigger existing AutoApply processor to execute the queue.
+
+    Add auto_autoapply_enabled boolean DEFAULT false and max_nightly_autoapply_submissions integer DEFAULT 50 to org_autonomous_config via ALTER TABLE (apply via Supabase SQL editor).
+
+    Add to worker/scheduler.ts: runAutonomousAutoApply at 3:00 AM CST slot.
+
+    Run pnpm tsc --noEmit, fix errors.
+    Commit: git add -A; git commit -m 'feat: AutoApply autonomous overnight orchestrator -- batch submission pipeline'; git push.
+
+- id: autoapply-auto-002
+  name: AutoApply autonomous controls UI and batch management plus deploy
+  prompt: |
+    Read src/app/(dashboard)/autoapply/controls/page.tsx in full.
+    Read src/app/(dashboard)/autoapply/page.tsx in full.
+    CRITICAL: Inline style={{}} only. Hardcoded hex values. Canvas #D6E4F0.
+
+    Upgrade autoapply/controls/page.tsx:
+    Add Autonomous Mode section (white card, border-radius 12px, padding 24px):
+    - Toggle: Enable Overnight Autonomous Submissions (calls PATCH /api/autonomous/config with auto_autoapply_enabled)
+    - Only shown if org plan is enterprise or consultant, otherwise show Upgrade Required badge
+    - Max nightly submissions slider: 10-400, default 50
+    - Schedule display: Runs nightly at 3:00 AM CST
+    - Last run: timestamp and count from agent_runs WHERE agent_type=autoapply_autonomous
+    - Next run: calculated next 3AM CST timestamp
+
+    Upgrade autoapply/page.tsx:
+    Add Autonomous Queue section showing tonight's queued submissions count, status, and estimated completion time.
+    Add batch progress indicator if autonomous run is currently executing.
+
+    Create src/app/api/autoapply/autonomous-status/route.ts: GET returns auto_autoapply_enabled, max_nightly_autoapply_submissions, last_run timestamp and count, tonight queue count.
+
+    Update FEATURE_REGISTRY_v2.md feature 219 status to BUILT.
+    Run pnpm tsc --noEmit. Run pnpm build, fix errors.
+    git add -A; git commit -m 'feat: AutoApply autonomous controls UI batch management'; git push.
+    npx vercel deploy --prod.
+    Report the production URL.

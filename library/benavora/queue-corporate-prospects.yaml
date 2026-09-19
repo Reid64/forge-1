@@ -1,0 +1,35 @@
+project: benavora
+governance:
+- SCHEMA_REGISTRY_v2.md
+- AUTONOMOUS_PLATFORM_VISION.md
+- STATE_OF_THE_BUILD.md
+- STANDING_DIRECTIVES.md
+prompts:
+- id: corp-001
+  name: Governance sync and corporate prospects acquisition pipeline
+  prompt: |
+    First: sync all governance docs: $repo = 'C:\Users\manag\Documents\benavora'; $forge = 'C:\Users\manag\Documents\FORGE\projects\benavora'; Get-ChildItem $repo -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName (Join-Path $forge $_.Name) -Force }
+
+    Read SCHEMA_REGISTRY_v2.md section for corporate_prospects table in full.
+    Search scripts/ for any acquire or prospects script and read if found.
+
+    Create scripts/acquire-corporate-prospects.ts: for each org WHERE onboarding_completed=true, load org service area and NTEE category, build industry search terms, call Google Places Text Search API GET https://maps.googleapis.com/maps/api/place/textsearch/json with GOOGLE_PLACES_API_KEY from env, upsert results into corporate_prospects with name/address/city/state/website/phone/google_place_id/industry/source=google_places/organization_id. Log progress per org. If GOOGLE_PLACES_API_KEY missing: warn and skip. Add package.json script acquire:prospects.
+
+    Create src/app/api/prospects/acquire/route.ts: POST triggers acquisition for authenticated org, returns message.
+
+    Run pnpm tsc --noEmit, fix errors.
+    Commit: git add -A; git commit -m 'feat: acquire:prospects Google Places pipeline and API route'; git push.
+
+- id: corp-002
+  name: Corporate prospects UI page and deploy
+  prompt: |
+    Read src/app/(dashboard)/donor-discovery/prospects/page.tsx in full.
+    Read SCHEMA_REGISTRY_v2.md for corporate_prospects table.
+    CRITICAL: Inline style={{}} only. Hardcoded hex values. Canvas #D6E4F0.
+
+    Rewrite prospects page: header with count badge and Discover More button. Stats row: Total Prospects, By Industry top 3, In Service Area, Contacted. Filter bar: industry dropdown, city filter, search. Prospects table white card: columns Company/Industry badge/Location/Rating/Website/Status/Actions. Industry badges: tech=#0EA5E9, retail=#8B5CF6, healthcare=#10B981, finance=#F59E0B, manufacturing=#6B7280. Status badges: new/contacted/interested/declined. Add to Outreach button #8B5CF6.
+
+    Run pnpm tsc --noEmit. Run pnpm build, fix errors.
+    git add -A; git commit -m 'feat: corporate prospects UI page industry badges outreach actions'; git push.
+    npx vercel deploy --prod.
+    Report the production URL.

@@ -1,0 +1,75 @@
+project: benavora
+governance:
+- BLUEPRINT_v2.md
+- SCHEMA_REGISTRY_v2.md
+- AGENTS_v2.md
+- AUTONOMOUS_PLATFORM_VISION.md
+- FEATURE_REGISTRY_v2.md
+- STATE_OF_THE_BUILD.md
+- STANDING_DIRECTIVES.md
+prompts:
+- id: advisor-001
+  name: Governance sync and strategic advisor schema and agent
+  prompt: |
+    First sync governance docs: $repo = 'C:\Users\manag\Documents\benavora'; $forge = 'C:\Users\manag\Documents\FORGE\projects\benavora'; Get-ChildItem $repo -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName (Join-Path $forge $_.Name) -Force }
+
+    Read AUTONOMOUS_PLATFORM_VISION.md section on AI Strategic Advisor.
+    Read src/lib/agents/autonomous-base.ts in full.
+    Read src/lib/agents/autonomous-digest-agent.ts in full for notification patterns.
+
+    Create migration src/supabase/migrations/[NEXT]_strategic_advisor.sql:
+    CREATE TABLE IF NOT EXISTS strategic_recommendations (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, recommendation_category text NOT NULL CHECK (recommendation_category IN ('apply_now','postpone','hire','expand','pivot','partnership','board','technology','compliance')), title text NOT NULL, recommendation text NOT NULL, reasoning text NOT NULL, urgency text DEFAULT 'normal' CHECK (urgency IN ('immediate','urgent','normal','low')), time_sensitivity text, expected_impact text, confidence_score integer, data_basis jsonb DEFAULT '{}', status text DEFAULT 'pending' CHECK (status IN ('pending','actioned','dismissed','snoozed')), generated_at timestamptz DEFAULT now(), actioned_at timestamptz);
+    ALTER TABLE strategic_recommendations ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY advisor_org ON strategic_recommendations USING (org_id = (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+    CREATE INDEX idx_advisor_org ON strategic_recommendations(org_id, urgency, status, generated_at DESC);
+
+    Apply via Supabase SQL editor.
+
+    Create src/lib/agents/strategic-advisor-agent.ts extending AutonomousAgent. AG-40. This is the most sophisticated agent -- it synthesizes ALL available intelligence to produce proactive unsolicited strategic recommendations.
+
+    run(triggerSource): Weekly run.
+    1. startRun.
+    2. Load comprehensive org intelligence: current pipeline value and stage distribution, success rate last 12 months by category, funding_forecasts latest, roi_insights (if exist), community_need_signals (if exist), corporate_intent_signals high-intent (if exist), relationship_recommendations pending, reputation_alerts unread critical, deadline prediction upcoming 90 days, platform_learning_patterns for org NTEE.
+    3. Call Claude (claude-sonnet-4-6, max_tokens 2000): System: You are a strategic advisor to a nonprofit executive director. Analyze all provided intelligence and generate 3-7 specific proactive strategic recommendations. These are unsolicited insights the ED has not asked for but needs to hear. Be specific with numbers. Return JSON array: [{ recommendation_category, title, recommendation, reasoning, urgency, time_sensitivity, expected_impact, confidence_score, data_basis }].
+    4. For each recommendation: check if a similar pending recommendation exists (same category, generated in last 30 days). If yes: skip. If no: insert strategic_recommendations.
+    5. IMMEDIATE recommendations: create notification right away.
+    6. logDecision for each recommendation inserted.
+    7. completeRun summary: recommendationsGenerated, immediate, urgent, normal.
+
+    Register in worker/autonomous-orchestrator.ts: weekly Sunday 5:00 AM CST per org.
+    This file must be at least 250 lines.
+    Run pnpm tsc --noEmit, fix errors.
+    Commit: git add -A; git commit -m 'feat: AG-40 strategic advisor agent -- proactive unsolicited recommendations from full intelligence synthesis'; git push.
+
+- id: advisor-002
+  name: Strategic advisor UI command center widget plus deploy
+  prompt: |
+    Read src/lib/agents/strategic-advisor-agent.ts in full.
+    Read src/app/(dashboard)/dashboard/page.tsx for inline style patterns.
+    CRITICAL: Inline style={{}} only. Hardcoded hex values. Canvas #D6E4F0.
+
+    Create src/app/api/intelligence/strategic-advisor/route.ts: GET returns strategic_recommendations for org WHERE status=pending ORDER BY urgency (immediate first), confidence_score DESC. POST triggers StrategicAdvisorAgent.
+    PATCH: accepts { id, status }. Updates recommendation status.
+
+    Create src/app/(dashboard)/intelligence/strategic-advisor/page.tsx:
+    Header: AI Strategic Advisor H1, subtitle Proactive intelligence -- recommendations you did not ask for but need to hear.
+    Generate Insights button calls POST route.
+    IMMEDIATE recommendations shown in prominent banner at top (red background #FEF2F2, red border, urgent icon).
+    Recommendation cards (white, border-radius 14px, padding 28px, marginBottom 16px):
+      Left accent bar by urgency: immediate=#DC2626, urgent=#F59E0B, normal=#0EA5E9, low=#6B7280.
+      Category badge + confidence score badge.
+      Title bold 18px #1A2B3C.
+      Recommendation text 15px #374151.
+      Reasoning section: Why we recommend this in smaller italic gray.
+      Expected Impact callout green box.
+      Time Sensitivity pill if set (red if deadline-based).
+      Action row: Mark Done (green), Dismiss (gray), Snooze 1 Week (blue outline).
+    Empty state: No strategic recommendations yet. Click Generate Insights to have your AI advisor analyze your full intelligence profile.
+
+    Add strategic advisor widget to dashboard: small card showing count of pending recommendations with urgency breakdown. Links to /intelligence/strategic-advisor.
+    Add to intelligence nav: Strategic Advisor href /intelligence/strategic-advisor with count badge.
+    Update FEATURE_REGISTRY_v2.md feature 228 status to BUILT.
+    Run pnpm tsc --noEmit. Run pnpm build, fix errors.
+    git add -A; git commit -m 'feat: strategic advisor UI command center widget full recommendation dashboard'; git push.
+    npx vercel deploy --prod.
+    Report the production URL.

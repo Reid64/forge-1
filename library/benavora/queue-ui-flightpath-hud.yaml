@@ -1,0 +1,58 @@
+project: benavora
+governance:
+- BLUEPRINT_v2.md
+- FEATURE_REGISTRY_v2.md
+- STATE_OF_THE_BUILD.md
+- AUTONOMOUS_PLATFORM_VISION.md
+- STANDING_DIRECTIVES.md
+prompts:
+- id: hud-001
+  name: Governance sync and FlightPathHUD audit
+  prompt: |
+    First: sync all governance docs by running this PowerShell command before anything else:
+    $repo = 'C:\Users\manag\Documents\benavora'; $forge = 'C:\Users\manag\Documents\FORGE\projects\benavora'; Get-ChildItem $repo -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName (Join-Path $forge $_.Name) -Force }
+
+    Then read src/components/dashboard/FlightPathHUD.tsx in full.
+    Read src/app/(dashboard)/dashboard/page.tsx in full.
+
+    Rewrite src/components/dashboard/FlightPathHUD.tsx completely from scratch using inline style={{}} with hardcoded hex values only. No Tailwind color classes. No CSS variables.
+
+    The component renders 6 lifecycle stage cards in a horizontal row. Each card minimum 200px wide, 160px tall.
+
+    Stage definitions:
+    1. Onboard — #06B6D4 teal
+    2. Research — #0EA5E9 blue
+    3. Opportunities — #8B5CF6 purple
+    4. Grant Narratives — #F59E0B amber
+    5. AutoApply — #10B981 green
+    6. Donor Discovery — #EC4899 pink
+
+    Each card: white background #FFFFFF, border-radius 14px, box-shadow 0 4px 16px rgba(0,0,0,0.10), top accent bar 4px in stage color, stage number 01-06 in 11px uppercase, stage name 15px bold #1A2B3C, count badge, View All link in stage color.
+
+    Props: interface FlightPathHUDProps { stageCounts: Record<string, number>; activeStage?: string }
+
+    Run pnpm tsc --noEmit, fix all errors. Run pnpm build, fix all errors.
+    Commit: git add -A; git commit -m 'feat: FlightPathHUD complete rewrite inline styles 6 stage cards'; git push.
+
+- id: hud-002
+  name: Dashboard hero banner and metric cards inline style rewrite
+  prompt: |
+    Read src/app/(dashboard)/dashboard/page.tsx in full.
+    CRITICAL: Inline style={{}} only. Hardcoded hex values. Canvas #D6E4F0.
+    Rewrite the hero banner section completely: background linear-gradient(135deg, #1A2B3C 0%, #0077B6 100%), border-radius 20px, height 200px, box-shadow 0 8px 32px rgba(0,0,0,0.20). Left side keeps existing illustration Image component. Right side: org name H1 white 24px bold, date white/65% opacity 13px. Metric chips 2x2 grid: white/12% background, white/20% border, border-radius 10px, padding 10px 14px. Label 10px uppercase white/60%, value 20px bold white.
+    Rewrite all trayStyle and card styles with inline styles. tray background #B8C4CC, card background #FFFFFF.
+    Run pnpm tsc --noEmit. Run pnpm build, fix all errors.
+    Commit: git add -A; git commit -m 'feat: dashboard hero banner metric cards inline style rewrite'; git push.
+
+- id: hud-003
+  name: Dashboard panels inline style rewrite and deploy
+  prompt: |
+    Read src/app/(dashboard)/dashboard/page.tsx in full.
+    CRITICAL: Inline style={{}} only. Hardcoded hex values. Canvas #D6E4F0.
+    Rewrite the three-column grid: Action Items panel (header #6B48CC, white card), Pipeline panel (white card with upcoming opportunities subsection showing top 3 by deadline with deadline colored red <=14 days, amber <=30 days), Upcoming Deadlines panel (background #1A2B3C dark).
+    Rewrite bottom row: Quick Actions panel background #0077B6, buttons white/15% background. Funding Summary white card.
+    Verify FlightPathHUD receives stageCounts={pipelineCounts} prop correctly.
+    Run pnpm tsc --noEmit. Run pnpm build, fix all errors.
+    git add -A; git commit -m 'feat: dashboard panels action items pipeline deadlines inline style rewrite'; git push.
+    npx vercel deploy --prod.
+    Report the production URL.

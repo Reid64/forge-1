@@ -1,0 +1,42 @@
+project: benavora
+governance:
+- BLUEPRINT_v2.md
+- SCHEMA_REGISTRY_v2.md
+- AGENTS_v2.md
+- AUTONOMOUS_PLATFORM_VISION.md
+- FEATURE_REGISTRY_v2.md
+- STATE_OF_THE_BUILD.md
+- STANDING_DIRECTIVES.md
+prompts:
+- id: twin-draft-001
+  name: Governance sync and twin-powered draft generation upgrade
+  prompt: |
+    First sync governance docs: $repo = 'C:\Users\manag\Documents\benavora'; $forge = 'C:\Users\manag\Documents\FORGE\projects\benavora'; Get-ChildItem $repo -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName (Join-Path $forge $_.Name) -Force }
+
+    Read src/lib/agents/draft-generation-agent.ts in full.
+    Read src/lib/intelligence/twin/ directory or search for digital twin logic in src/lib/.
+    Read AUTONOMOUS_PLATFORM_VISION.md section on Twin-Powered Draft Generation.
+
+    Upgrade src/lib/agents/draft-generation-agent.ts to be fully twin-powered. Before generating any draft the agent must: load the organizational_digital_twins record for this org, extract all twin data sections (mission_data, programs_data, financial_data, leadership_data, impact_data, geographic_data, capacity_data), calculate twin_completeness score (count non-null sections / total sections * 100), if twin_completeness < 40 create notification suggesting org complete their digital twin before drafts can be optimal. Build a rich context object from twin data that gets injected into every Claude prompt as a structured section labeled ORGANIZATIONAL CONTEXT FROM DIGITAL TWIN. Twin data takes priority over KB data when both exist. Track twin_completeness in the draft confidence calculation: reduce confidence by (100 - twin_completeness) * 0.3. Add twin_powered boolean and twin_completeness integer columns to applications table via ALTER TABLE. Set twin_powered=true and twin_completeness=value on every auto-generated draft.
+
+    This upgrade must not break any existing draft generation functionality. All HARD LIMITS remain enforced.
+
+    Run pnpm tsc --noEmit, fix all errors.
+    Commit: git add -A; git commit -m 'feat: draft generation agent upgraded to twin-powered -- digital twin context injection'; git push.
+
+- id: twin-draft-002
+  name: Twin completeness UI and draft quality indicators plus deploy
+  prompt: |
+    Read src/app/(dashboard)/intelligence/twin/page.tsx in full.
+    Read src/app/(dashboard)/draft-generator/autonomous/page.tsx in full.
+    CRITICAL: Inline style={{}} only. Hardcoded hex values. Canvas #D6E4F0.
+
+    Upgrade the Digital Twin page: add Twin Completeness score prominently at top (large percentage circle, colored green >=80, amber 60-79, red <60). Add section-by-section breakdown showing which twin data sections are populated vs empty. Add Update Twin button that triggers twin rebuild. Add callout if completeness < 60: Your AI drafts will be limited until your Digital Twin is complete. Complete now to unlock optimal draft quality.
+
+    Upgrade autonomous draft review page: add twin_powered badge (purple pill Twin-Powered if twin_powered=true) and twin_completeness indicator on each draft card. Drafts with twin_completeness < 60 show amber warning: Draft generated with incomplete twin data -- review carefully.
+
+    Update FEATURE_REGISTRY_v2.md feature 217 (Twin-Powered Draft) status to BUILT.
+    Run pnpm tsc --noEmit. Run pnpm build, fix all errors.
+    git add -A; git commit -m 'feat: twin completeness UI and draft quality indicators'; git push.
+    npx vercel deploy --prod.
+    Report the production URL.

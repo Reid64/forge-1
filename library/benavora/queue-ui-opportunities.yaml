@@ -1,0 +1,43 @@
+project: benavora
+governance:
+- BLUEPRINT_v2.md
+- SCHEMA_REGISTRY_v2.md
+- FEATURE_REGISTRY_v2.md
+- STATE_OF_THE_BUILD.md
+- AUTONOMOUS_PLATFORM_VISION.md
+- STANDING_DIRECTIVES.md
+prompts:
+- id: opp-001
+  name: Governance sync and opportunities page full rewrite
+  prompt: |
+    First: sync all governance docs: $repo = 'C:\Users\manag\Documents\benavora'; $forge = 'C:\Users\manag\Documents\FORGE\projects\benavora'; Get-ChildItem $repo -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName (Join-Path $forge $_.Name) -Force }
+
+    Read src/app/(dashboard)/opportunities/page.tsx in full.
+    Read src/app/(dashboard)/dashboard/page.tsx for inline style color patterns.
+    CRITICAL: Inline style={{}} only. Hardcoded hex values. Canvas #D6E4F0.
+
+    Rewrite src/app/(dashboard)/opportunities/page.tsx completely.
+    Header: Opportunities H1 28px bold #1A2B3C, subtitle 14px #6B7280, New Opportunity button #0EA5E9.
+    Filter bar white card: search input, filter pills for Source/Status/Sort.
+    Stats row 4 cards: Total Opportunities (#0EA5E9 band), High Probability (#10B981), Closing This Month (#F59E0B), Total Value (#8B5CF6).
+    Table white card: columns Title, Source badge, Funder, Amount, Deadline (red <=14d, amber <=30d), Probability badge (green >=70, amber 50-69, red <50), Eligibility badge, Actions.
+    Source badges: federal=#1D4ED8 bg #EFF6FF, foundation=#7C3AED bg #F5F3FF, corporate=#0891B2 bg #ECFEFF, state=#16A34A bg #F0FDF4.
+
+    Run pnpm tsc --noEmit. Run pnpm build, fix all errors.
+    Commit: git add -A; git commit -m 'feat: opportunities page full inline style rewrite badges probability deadline colors'; git push.
+
+- id: opp-002
+  name: Opportunity detail page and applications list inline style rewrite plus deploy
+  prompt: |
+    Read src/app/(dashboard)/opportunities/[id]/page.tsx in full.
+    Read src/app/(dashboard)/applications/page.tsx in full.
+    CRITICAL: Inline style={{}} only. Hardcoded hex values. Canvas #D6E4F0.
+
+    Rewrite opportunity detail page: header white card with title H1, source badge, funder, 4-metric grid (Amount/Deadline/Probability/Eligibility). Probability circle 120px diameter, border 4px colored by score, score 36px bold inside. Eligibility 5-factor progress bars. Action buttons row.
+
+    Rewrite applications page: pipeline stage tabs horizontal row with count badges. Active tab #1A2B3C white. Application cards with left accent bar by stage color. Stage colors: Discovery=#06B6D4, Drafting=#8B5CF6, Submitted=#0EA5E9, Awarded=#10B981, Denied=#EF4444. AI Draft badge #8B5CF6 if auto_generated. Review Needed badge #F59E0B if pending_review.
+
+    Run pnpm tsc --noEmit. Run pnpm build, fix all errors.
+    git add -A; git commit -m 'feat: opportunity detail and applications inline style rewrite'; git push.
+    npx vercel deploy --prod.
+    Report the production URL.

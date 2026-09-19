@@ -1,0 +1,222 @@
+governance:
+- STATE_OF_THE_BUILD.md
+- SESSION_STATE.md
+- AGENTS_v2.md
+project: benavora
+settings:
+  max_retries_per_prompt: 2
+  permission_mode: acceptEdits
+prompts:
+- id: ar-14-1-knowledge-pipeline
+  name: Phase 14.1 Make the knowledge pipeline actually produce work
+  description: 63,941 runs, zero items, 44% of all agent history - fix the cause AR-13.3 identified
+  phase: "14"
+  prompt: |
+    BENAVORA - PHASE 14.1 - THE KNOWLEDGE PIPELINE
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    START BY READING test-evidence/DATA_PIPELINE_AUDIT.md and
+    test-evidence/REMEDIATION_PLAN.md. AR-13.3 identified what feeds
+    ag-29-knowledge-indexer and when it last produced content. That finding,
+    not this prompt, is your specification.
+
+    THE FACTS THAT PROMPTED THIS, verified live 2026-09-18:
+      ag-29-knowledge-indexer  63,941 lifetime runs
+                               177 runs in 3 hours, ALL with items_processed=0
+                               average 0.69 seconds
+                               ~44% of every agent_run ever recorded
+    It completes successfully every time and does nothing every time.
+
+    FIX THE PRODUCER FIRST, NOT THE CONSUMER. If nothing is feeding the
+    knowledge base, making the indexer quieter just hides it. Restore whatever
+    is supposed to produce indexable content, and prove it by a row count that
+    goes up.
+
+    THEN fix the consumer's honesty:
+      - An agent that processes zero items should not write a `completed`
+        agent_runs row indistinguishable from one that indexed 400 documents.
+        Use the `skipped` status migration 199 added, or record
+        items_processed so the distinction survives.
+      - Back the polling off to match the rate work actually arrives. If work
+        arrives hourly, do not poll every minute. If it is genuinely
+        event-driven, make it event-driven.
+
+    DO NOT simply delete or disable the agent. If the knowledge base is
+    supposed to be indexing and has silently stopped, that is a product
+    failure, and switching off the thing that reveals it is the worst
+    available outcome.
+
+    BLAST RADIUS: ag-29 is 44% of agent_runs. Changing its logging changes
+    every platform metric and every dashboard built in AR-6.4. Say in your
+    report what the run counts look like before and after, so nobody reads the
+    drop as an outage.
+
+    INCREMENTAL TESTING CHECKPOINT
+    src/__tests__/integration/knowledge-pipeline.test.ts asserting: content
+    entering the source table becomes indexable work; an empty pass records
+    something other than a plain success; and the indexer still processes real
+    work when it exists.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    AGENTS_v2.md and SCHEMA_REGISTRY_v2.md.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm run build:worker, pnpm test. Real
+    numbers. Then query production and state: is the knowledge base receiving
+    content again, and what does ag-29's run rate and items_processed look
+    like now?
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/lib worker supabase/migrations src/__tests__ scripts
+    git commit -m "[FORGE] AR-14.1: knowledge pipeline produces work again; the indexer no longer reports empty passes as successes"
+    git push origin main
+  gates:
+  - type: compile
+  - type: test
+  - type: file_exists
+    files:
+    - src/__tests__/integration/knowledge-pipeline.test.ts
+  - type: shell
+    run: node scripts/audit/forge-gates/live-capture.mjs --table knowledge_base --window 6h --min 1 --context agent_runs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-14-2-empty-poll-class
+  name: Phase 14.2 Every other empty poller on the platform
+  description: If ag-29 did it, others do too - fix the class
+  phase: "14"
+  prompt: |
+    BENAVORA - PHASE 14.2 - THE EMPTY-POLL CLASS
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Read test-evidence/SCHEDULER_MAP.md. It records, per trigger, how many
+    runs produced real work and how many were empty. Fix every offender it
+    names, not just the worst one.
+
+    THE PATTERN: an agent polls on a fixed interval, finds nothing, writes a
+    `completed` agent_runs row, and repeats. The result is a run history where
+    success is meaningless, dashboards that measure heartbeat instead of work,
+    and real failures buried under tens of thousands of empty rows.
+
+    FOR EACH OFFENDER, apply the same three-part fix and say which you chose:
+      1. TRUTHFUL STATUS. An empty pass is not a success. Use `skipped`
+         (migration 199) or record items_processed so it is distinguishable.
+         Never make it a failure - it is not one.
+      2. INTERVAL MATCHED TO ARRIVAL RATE. Poll no faster than work arrives,
+         with justification in a comment. Prefer event-driven where the
+         producer can signal.
+      3. BACKOFF. Where polling must stay, back off when consecutive passes
+         are empty and reset on work found. Cap the backoff.
+
+    DO NOT apply a blanket interval change across the platform. Each trigger
+    gets a reasoned number based on its own arrival data from AR-13.2.
+
+    ALSO: if AR-13.2 found a circuit breaker or disable-on-failure mechanism,
+    document exactly when it fires and whether anything ever re-enables an
+    agent. An agent silently switched off after three failures and never
+    re-enabled is indistinguishable from an agent that was never wired - and
+    that distinction decides the fate of ~51 agents in phase 15.
+
+    INCREMENTAL TESTING CHECKPOINT
+    src/__tests__/unit/empty-poll-backoff.test.ts asserting: consecutive empty
+    passes increase the interval; work found resets it; the backoff is capped;
+    and an empty pass does not record a plain success.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    AGENTS_v2.md and ARCHITECTURE.md with the per-trigger intervals and their
+    justifications.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm run build:worker, pnpm test. Real
+    numbers. Then state the projected daily agent_runs volume before and
+    after, and what fraction of it is now real work.
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/lib worker src/__tests__ supabase/migrations
+    git commit -m "[FORGE] AR-14.2: empty polls tell the truth and back off; run history measures work, not heartbeat"
+    git push origin main
+  gates:
+  - type: compile
+  - type: test
+  - type: file_exists
+    files:
+    - src/__tests__/unit/empty-poll-backoff.test.ts
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-14-3-ingest-restoration
+  name: Phase 14.3 Restore the ingest jobs that feed everything
+  description: Manual-only ingest means the whole platform starves between hand-runs
+  phase: "14"
+  prompt: |
+    BENAVORA - PHASE 14.3 - INGEST RESTORATION
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Read test-evidence/DATA_PIPELINE_AUDIT.md for which ingest jobs are
+    scheduled, which are manual-only, and when each last ran.
+
+    package.json carries ingest:bmf, ingest:samgov, enrich:990, enrich:web,
+    enrich:websites, enrich:propublica and seed scripts. If these only run when
+    Reid runs them by hand, then every downstream agent starves between
+    hand-runs, and the platform looks broken when it is actually just hungry.
+
+    FOR EACH INGEST JOB:
+      - Determine whether it should run on a schedule, and how often, from the
+        rate its source actually changes. SAM.gov and grants feeds update
+        daily; IRS BMF updates far less often. Justify each interval.
+      - Wire the ones that should be scheduled into the worker's existing
+        interval set or the platform's cron - do NOT invent a second scheduler.
+      - Give each an agent identity so its runs appear in agent_runs like
+        everything else. An ingest job that runs invisibly is the same blind
+        spot this whole programme exists to remove.
+      - Record cost through ai_usage_log where it calls a paid API, using the
+        AR-10.2 priceApiCall path. An ingest job quietly burning Google Places
+        credits is exactly what that work was for.
+
+    HARD CONSTRAINT: do not schedule anything that spends money without a
+    budget scope. AR-10.3 gave cost_budgets a period and mid-run enforcement -
+    every newly scheduled paid ingest must run under one, and you must say
+    which budget scope it uses.
+
+    RATE LIMITS: respect each source's published limits. A newly scheduled job
+    that gets the platform banned from SAM.gov is worse than a manual one.
+    State the limit you found and the interval you chose against it.
+
+    INCREMENTAL TESTING CHECKPOINT
+    src/__tests__/integration/ingest-scheduling.test.ts asserting: each
+    scheduled ingest has an agent identity and writes agent_runs; a paid
+    ingest records cost; and one running without a configured budget is
+    refused rather than silently spending.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    AGENTS_v2.md and ARCHITECTURE.md.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm run build:worker, pnpm test. Real
+    numbers. Then state which ingest jobs are now scheduled, at what interval,
+    under which budget, and which remain manual and why.
+
+    COMMIT (scoped - never `git add -A`)
+    git add scripts worker src/lib supabase/migrations src/__tests__ package.json
+    git commit -m "[FORGE] AR-14.3: ingest jobs scheduled, identified in agent_runs, cost-tracked and budget-scoped"
+    git push origin main
+  gates:
+  - type: compile
+  - type: test
+  - type: file_exists
+    files:
+    - src/__tests__/integration/ingest-scheduling.test.ts
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt

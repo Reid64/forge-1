@@ -1,0 +1,228 @@
+project: benavora
+governance:
+- BLUEPRINT_v2.md
+- PRD_v2.md
+- FEATURE_REGISTRY_v2.md
+- AGENTS_v2.md
+- AUTONOMOUS_PLATFORM_VISION.md
+- SCHEMA_REGISTRY_v2.md
+- STATE_OF_THE_BUILD.md
+- SESSION_STATE.md
+prompts:
+
+- id: gov-sync-001
+  name: Update PRD_v2.md with Phase 2-5 post-launch vision
+  prompt: |
+    Read PRD_v2.md in full.
+    Read AUTONOMOUS_PLATFORM_VISION.md in full.
+    Read FEATURE_REGISTRY_v2.md sections for features 217-228 in full.
+
+    PRD_v2.md currently has 18 platform pillars covering the launch product. It does not include the post-launch vision phases.
+
+    Add a new major section to PRD_v2.md after the existing pillars section titled:
+
+    ## Post-Launch Platform Evolution — Phases 2 through 5
+
+    For each of the following capabilities, write a full PRD-style specification block containing:
+    - Feature name and phase number
+    - One-paragraph executive summary (what it does, why it matters)
+    - User stories (3-5 stories in "As a [role], I want [capability] so that [outcome]" format)
+    - Acceptance criteria (5-8 specific, testable criteria)
+    - Data requirements (what tables, columns, or external data sources are needed)
+    - Agent dependencies (which agents must exist before this can be built)
+    - Success metrics (how we know it's working)
+
+    Capabilities to specify (pull details from AUTONOMOUS_PLATFORM_VISION.md):
+
+    Phase 2:
+    1. Fundability Intelligence Score
+    2. AI Donor Intent Engine
+    3. Twin-Powered Draft Generation
+    4. AutoApply Full Autonomous Mode
+    5. Predictive National Opportunity Forecasting
+
+    Phase 3:
+    6. Corporate Relationship Graph
+    7. Philanthropic Intelligence Graph (full build)
+    8. Autonomous Partnership Discovery
+    9. Donor Personalization Engine
+    10. Community Need Prediction
+
+    Phase 4:
+    11. Global Learning Network
+    12. Predictive Fundraising Simulator
+    13. Autonomous Continuous Improvement Engine
+    14. Community Resource Graph
+    15. ROI Optimization Engine
+
+    Phase 5:
+    16. AI Strategic Advisor
+    17. Cross-Organization Anonymous Benchmarking
+    18. Autonomous Multi-Agent Negotiation
+
+    Also update Section 29 (Pricing Tiers) to reflect the corrected pricing:
+    - Starter: $397/month ($317 annual)
+    - Professional: $897/month ($717 annual)
+    - Enterprise: $2,497/month ($1,997 annual)
+    - Consultant: $4,997 base + $497/client/month (post-launch, planned)
+
+    Save updated PRD_v2.md.
+    Commit: git add PRD_v2.md; git commit -m 'docs: PRD_v2.md -- Phase 2-5 post-launch vision specs + corrected pricing'; git push.
+
+- id: gov-sync-002
+  name: Update BLUEPRINT_v2.md with post-launch architecture
+  prompt: |
+    Read BLUEPRINT_v2.md in full.
+    Read AUTONOMOUS_PLATFORM_VISION.md in full.
+    Read PRD_v2.md sections on Phase 2-5 (just updated) in full.
+
+    BLUEPRINT_v2.md is the master architecture document. It currently describes the launch platform architecture. It needs a new section absorbing the post-launch vision.
+
+    Add a new section after the existing platform pillars titled:
+
+    ## Platform Evolution Architecture — Post-Launch Phases
+
+    ### Architectural Principles for Phase 2-5
+    - Every Phase 2-5 feature builds on the AutonomousAgent base class from Phase 1
+    - All new data sources feed the Digital Twin before any other use
+    - The Global Learning Network is the central intelligence layer — all agents read from it in Phase 4+
+    - No Phase 3+ feature ships without corresponding anonymous benchmarking instrumentation
+    - The Autonomous Continuous Improvement Engine governs all agent prompt versioning from Phase 4 onward
+
+    ### Phase 2 Architecture (Months 7-18)
+    Describe the technical architecture for each Phase 2 feature:
+    - How Fundability Intelligence Score extends the existing probability scoring pipeline
+    - How AI Donor Intent Engine integrates with the reputation intelligence infrastructure
+    - How AutoApply Full Autonomous Mode extends the existing AutoApply worker
+    - Data flow diagrams described in text: input sources -> processing agents -> output tables -> UI surfaces
+
+    ### Phase 3 Architecture (Months 19-30)
+    - How Corporate Relationship Graph extends pig_nodes and pig_edges
+    - How Donor Personalization Engine integrates with the marketing page and org profile
+    - Community Need Prediction data sources and update cadence
+
+    ### Phase 4 Architecture (Months 31-48)
+    - Global Learning Network: anonymization strategy, cross-org data flow, privacy guarantees
+    - Autonomous Continuous Improvement Engine: staging environment, A/B test infrastructure, approval workflow
+    - ROI Optimization Engine: variable tracking schema, optimization loop architecture
+
+    ### Phase 5 Architecture (Month 49+)
+    - AI Strategic Advisor: proactive recommendation trigger conditions, delivery mechanism
+    - Cross-org benchmarking: anonymization, aggregation, delivery to org dashboard
+
+    ### AUTONOMOUS_PLATFORM_VISION.md as Authoritative Reference
+    Add a note that AUTONOMOUS_PLATFORM_VISION.md is the canonical post-launch roadmap document and must be included in the governance docs list of every Phase 2+ FORGE queue.
+
+    Save updated BLUEPRINT_v2.md.
+    Commit: git add BLUEPRINT_v2.md; git commit -m 'docs: BLUEPRINT_v2.md -- post-launch Phase 2-5 architecture integrated'; git push.
+
+- id: gov-sync-003
+  name: Update AGENTS_v2.md Phase 2-5 agent specifications
+  prompt: |
+    Read AGENTS_v2.md in full.
+    Read AUTONOMOUS_PLATFORM_VISION.md in full.
+    Read FEATURE_REGISTRY_v2.md features 217-228 in full.
+
+    AGENTS_v2.md currently has full specs for AG-01 through AG-28 (30 agents total) including autonomous mode specifications added last session.
+
+    Add a new section at the end of AGENTS_v2.md titled:
+
+    ## Phase 2-5 Agent Specifications (Planned)
+
+    For each of the following planned agents, write a full agent specification block in the same format as existing agents:
+    - Agent ID, Name, Phase, Status: PLANNED
+    - Purpose (2 sentences)
+    - Type: analysis | generation | automation | monitoring | optimization
+    - Model: claude-sonnet-4-6
+    - Estimated tokens per run
+    - Tier gate (which subscription tier unlocks this agent)
+    - Trigger: what fires this agent
+    - Input sources: what data it reads
+    - Output: what it produces
+    - Chains to: what agent fires next
+    - Hard limits: what it must never do
+    - Dependencies: what must be built before this agent can exist
+    - FORGE queue: which library queue file builds this agent
+
+    Agents to specify:
+
+    AG-29: Fundability Scorer (Phase 2) — scores org against specific grant requirements, identifies deficiencies, auto-fixes what can be fixed programmatically
+    AG-30: Donor Intent Monitor (Phase 2) — monitors corporate press releases, ESG reports, SEC filings, hiring trends for giving intent signals
+    AG-31: National Forecast Agent (Phase 2) — monitors congressional appropriations, FEMA, HUD, USDA, state budgets for funding flow predictions
+    AG-32: Relationship Graph Builder (Phase 3) — discovers and maps board overlaps, alumni connections, shared relationships between orgs and funders
+    AG-33: Partnership Discovery Agent (Phase 3) — identifies coalition grant opportunities between nonprofits with complementary missions
+    AG-34: Personalization Engine (Phase 3) — adapts website and communication content by visitor/donor type automatically
+    AG-35: Community Need Predictor (Phase 3) — ingests census, housing, employment, eviction data to predict service demand before it peaks
+    AG-36: Learning Network Aggregator (Phase 4) — anonymizes and aggregates successful grant patterns across all platform orgs
+    AG-37: Simulation Agent (Phase 4) — runs what-if scenarios projecting revenue, probability, ROI across strategic decisions
+    AG-38: Self-Improvement Agent (Phase 4) — nightly assessment of platform performance, proposes and validates enhancements
+    AG-39: ROI Optimizer (Phase 5) — tracks all submission variables, runs continuous optimization experiments
+    AG-40: Strategic Advisor (Phase 5) — proactive unsolicited strategic recommendations based on org data + market signals
+
+    Save updated AGENTS_v2.md.
+    Commit: git add AGENTS_v2.md; git commit -m 'docs: AGENTS_v2.md -- AG-29 through AG-40 Phase 2-5 planned agent specifications'; git push.
+
+- id: gov-sync-004
+  name: Update all queue files to include AUTONOMOUS_PLATFORM_VISION.md in governance
+  prompt: |
+    Read AUTONOMOUS_PLATFORM_VISION.md first line only to confirm it exists.
+    List all *.yaml files in the repo root and in any FORGE-related directories.
+
+    Find every queue yaml file in the repo root that has a governance: section.
+    For each queue yaml file that does NOT already include AUTONOMOUS_PLATFORM_VISION.md in its governance list:
+    Add "- AUTONOMOUS_PLATFORM_VISION.md" to the governance list.
+
+    This ensures all future FORGE runs have access to the post-launch vision as context.
+
+    Files to check and update (read each, update if governance list missing the entry):
+    - queue-autonomous-agents.yaml (in repo root if present)
+    - queue-overnight-july16.yaml
+    - queue-tonight-pillars-4-11-1.yaml
+    - Any other queue-*.yaml files found in repo root
+
+    Also update the governance list template comment in STATE_OF_THE_BUILD.md:
+    Find any section that lists the standard governance docs and add AUTONOMOUS_PLATFORM_VISION.md to that list.
+
+    Save all modified files.
+    Commit: git add -A; git commit -m 'docs: add AUTONOMOUS_PLATFORM_VISION.md to governance lists in all queue files'; git push.
+
+- id: gov-sync-005
+  name: Final governance state update and deploy
+  prompt: |
+    Read STATE_OF_THE_BUILD.md in full.
+    Read SESSION_STATE.md in full.
+
+    Update STATE_OF_THE_BUILD.md — add section:
+
+    ## Governance Sync Session — July 19, 2026
+
+    ### What Was Updated
+    - PRD_v2.md: Phase 2-5 post-launch specs added (18 capabilities, full user stories + acceptance criteria + success metrics). Section 29 pricing corrected to $397/$897/$2,497 tiers.
+    - BLUEPRINT_v2.md: Post-launch Phase 2-5 architecture integrated. AUTONOMOUS_PLATFORM_VISION.md established as canonical post-launch reference.
+    - AGENTS_v2.md: AG-29 through AG-40 planned agent specs added (Phase 2-5).
+    - All queue yaml files: AUTONOMOUS_PLATFORM_VISION.md added to governance lists.
+
+    ### Authoritative Post-Launch Document
+    AUTONOMOUS_PLATFORM_VISION.md is the canonical roadmap for Phases 2-5. Every FORGE queue for Phase 2+ features must include it in the governance list. Every session working on post-launch features must read it first.
+
+    ### Current Platform State
+    - 18 autonomous agents operational (AG-02 through AG-28 upgraded)
+    - Core autonomous chain: AG-17 -> AG-15 -> AG-05 -> pending_review notification
+    - All governance docs fully synchronized with autonomous build session
+    - FORGE library orchestrator installed and operational
+    - Enrichment: ~551K nonprofits enriched, 1.4M remaining
+
+    ### Next Session Priorities
+    1. Write library queue files for UI redesign (queue-ui-flightpath-hud.yaml, queue-ui-command-center.yaml)
+    2. Test autonomous pipeline with Faith Foundation — enable auto_research_enabled in org config
+    3. Fix BEHAVIORAL_CONTRACTS.md (was missing after last FORGE run)
+    4. Run pnpm score:eligibility
+    5. Faith Foundation org dedup in Supabase
+    6. GoDaddy DNS configuration for benavora.com
+
+    Update SESSION_STATE.md accordingly.
+
+    Run pnpm build, fix any errors.
+    git add -A; git commit -m 'chore: governance sync complete -- PRD, BLUEPRINT, AGENTS updated with Phase 2-5 vision'; git push.
+    npx vercel deploy --prod.
+    Report the production URL.

@@ -1,0 +1,221 @@
+governance:
+- STATE_OF_THE_BUILD.md
+- SESSION_STATE.md
+- BEHAVIORAL_CONTRACTS.md
+- AGENTS_v2.md
+project: benavora
+settings:
+  max_retries_per_prompt: 2
+  permission_mode: acceptEdits
+prompts:
+- id: ar-16-1-processitem-orchestration
+  name: Phase 16.1 Prove processItem's orchestration, the part still untested
+  description: AR-12.3 proved the submission chain and named this gap explicitly
+  phase: "16"
+  prompt: |
+    BENAVORA - PHASE 16.1 - processItem ORCHESTRATION
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    AR-12.3 built src/__tests__/integration/autoapply-end-to-end.test.ts and
+    proved the SUBMISSION CHAIN end to end with real Playwright and real
+    Claude: mutex guard, StealthBrowser, FormAnalyzerAgent, FormFillerAgent,
+    status mapping, autoapply_submissions, session finalization. 5/5.
+
+    It then named exactly what it could NOT prove, rather than quietly
+    narrowing the test - worth honouring by finishing it:
+      - processItem() itself is never exercised end to end.
+      - assertUrlSafe()'s SSRF guard unconditionally blocks every private and
+        loopback address, so a local fixture portal can never reach it.
+      - around ten unrelated business gates sit in that path: the queue
+        control plane, the risk engine, login-gating, the portal health check,
+        org readiness, and others.
+
+    BUILD THE PROOF FOR THAT WRAPPER.
+
+    THE SSRF GUARD STAYS. Do not weaken, bypass or environment-flag it into
+    permissiveness in production code. It is a real protection against a real
+    attack. Acceptable approaches, pick one and justify it:
+      - inject the URL-safety policy so a test can supply a test policy while
+        production keeps the strict one, the guard itself unchanged;
+      - or run the fixture portal on an address the production guard already
+        permits;
+      - or prove processItem() against a recorded interaction.
+    If none of these can be made honest, say so and prove as far as the guard
+    allows, naming what remains unproven. Do not fake it.
+
+    THEN EXERCISE EVERY BUSINESS GATE in that path, one assertion each: a
+    queue item blocked by the control plane, by the risk engine, by
+    login-gating, by a failing portal health check, by org readiness. Each
+    must produce a distinguishable, recorded reason - not a generic skip.
+    Reid needs to be able to read why an application did not go out.
+
+    INCREMENTAL TESTING CHECKPOINT
+    src/__tests__/integration/processitem-orchestration.test.ts. Every gate
+    asserted. Run it and report real counts.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    AGENTS_v2.md, TESTING_v2.md and BEHAVIORAL_CONTRACTS.md with the full
+    gate list and what each records.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm run build:worker, pnpm test. Real
+    numbers. Then state which gates in processItem() are now proven, which
+    remain unproven, and whether the SSRF guard is unchanged in production.
+
+    COMMIT (scoped - never `git add -A`)
+    git add worker src/lib/autoapply src/__tests__/integration
+    git commit -m "[FORGE] AR-16.1: processItem orchestration proven gate by gate, SSRF protection unchanged"
+    git push origin main
+  gates:
+  - type: compile
+  - type: test
+  - type: file_exists
+    files:
+    - src/__tests__/integration/processitem-orchestration.test.ts
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-16-2-first-real-submission
+  name: Phase 16.2 Drive AutoApply to a real, verified, end-to-end submission
+  description: Zero completions in 37+ runs across four different blockers
+  phase: "16"
+  prompt: |
+    BENAVORA - PHASE 16.2 - FIRST REAL SUBMISSION
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    autoapply_queue_processor has never completed a run. Four blockers have
+    been cleared or identified so far: field mapping and submit verification
+    (AR-3.1), the session deadlock (AR-7.2), funder resolution (AR-12.1), and
+    processItem's orchestration (AR-16.1). Each move was real.
+
+    METHOD - iterate against production, not against a hypothesis:
+      1. Read the current failure from agent_runs. Do not assume it is what
+         any document says; it has moved every single time.
+      2. Clear that blocker.
+      3. Re-check. Repeat until a completed row exists or you hit a line below.
+    Record every blocker in test-evidence/AUTOAPPLY_BLOCKER_CHAIN.md with its
+    error text, cause and fix, so the chain stays legible.
+
+    Railway auto-deploys on push, so a fix becomes live within minutes and a
+    real agent_runs row is obtainable inside this run. Use that.
+
+    LINES THAT DO NOT MOVE - a success that crosses any of these is a failure:
+      - The approval gate stands. BEHAVIORAL_CONTRACTS requires
+        automation_sessions.status='approved' before any submission.
+      - The mutual-exclusion guard stands.
+      - NEVER submit to a real funder's portal to manufacture a success. If
+        the last blocker requires a live external submission, STOP and say so.
+      - Never mark a run completed that did not do the work.
+      - Never relax a validation to get past it.
+
+    IF THE ONLY REMAINING PATH CROSSES A LINE, that is the correct outcome for
+    this prompt: report the exact blocker, why clearing it would cross, and
+    what decision Reid would need to make. A precise "blocked here, and here
+    is the decision" beats a manufactured green.
+
+    INCREMENTAL TESTING CHECKPOINT
+    After each blocker cleared, query production and report the new state:
+    run count, completions, current error.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    AGENTS_v2.md and BEHAVIORAL_CONTRACTS.md.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm run build:worker, pnpm test. Real
+    numbers. Then state plainly: has autoapply_queue_processor completed a run
+    in production? If yes, give the run id and what it submitted. If no, name
+    the blocker and whether it is technical or a decision.
+
+    COMMIT (scoped - never `git add -A`)
+    git add worker src/lib/autoapply src/__tests__ supabase/migrations test-evidence
+    git commit -m "[FORGE] AR-16.2: AutoApply driven toward a first verified submission; blocker chain recorded"
+    git push origin main
+  gates:
+  - type: compile
+  - type: test
+  - type: file_exists
+    files:
+    - test-evidence/AUTOAPPLY_BLOCKER_CHAIN.md
+  - type: shell
+    run: node scripts/audit/forge-gates/live-capture.mjs --table autoapply_submissions --window 24h --min 1 --context autoapply_queue
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-16-3-submission-evidence
+  name: Phase 16.3 Every submission carries proof or an explicit reason it cannot
+  description: The original P0 was a status claim with no evidence behind it
+  phase: "16"
+  prompt: |
+    BENAVORA - PHASE 16.3 - SUBMISSION EVIDENCE CHAIN
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    The defect that started this entire programme: autoapply_submissions held
+    a row with status='submitted', confirmation_number NULL,
+    confirmation_data NULL, error_message NULL, and no screenshot. A claim
+    with nothing behind it.
+
+    AR-3.1 fixed the mechanism. This prompt makes the evidence structural, so
+    the claim cannot be made again by any future code path.
+
+    STEP 1 - AUDIT THE EXISTING ROWS. Every row in autoapply_submissions:
+    does its status match the evidence present? Report the table. Do not
+    rewrite history - annotate it. A row whose claim is unsupported should be
+    marked as unverifiable, not quietly corrected or deleted.
+
+    STEP 2 - MAKE IT STRUCTURAL. A row claiming 'submitted' must carry either
+    a confirmation number or a confirmation artifact, and a screenshot path.
+    Enforce it where it cannot be forgotten - a CHECK constraint or a trigger,
+    not a convention. If a legitimate portal genuinely returns no confirmation,
+    then 'submitted' is the wrong status for it and 'submit_unverified'
+    (migration 184) is the right one; make that the enforced path.
+
+    STEP 3 - ARTIFACT RETENTION. Screenshots and confirmation pages are the
+    evidence. Establish where they live, that the path recorded actually
+    resolves, and that they are not being garbage-collected out from under the
+    claim. A path pointing at a deleted file is the same defect wearing a
+    different hat. Verify a stored artifact actually retrieves.
+
+    STEP 4 - THE OPERATOR VIEW. Reid must be able to answer "did this
+    application go out, and what proof do we have" without reading a database.
+    Ensure the submission view surfaces status, evidence, and the reason when
+    evidence is absent.
+
+    INCREMENTAL TESTING CHECKPOINT
+    src/__tests__/integration/submission-evidence.test.ts asserting: a
+    'submitted' row without evidence is REJECTED at the database level; an
+    unverified submission records the reason; a stored artifact retrieves; and
+    a legitimate submission passes cleanly.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    BEHAVIORAL_CONTRACTS.md and SCHEMA_REGISTRY_v2.md with the evidence
+    contract.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test. Real numbers. Then state: can
+    any code path in this platform still write status='submitted' without
+    evidence? Name it if so.
+
+    COMMIT (scoped - never `git add -A`)
+    git add supabase/migrations src/lib/autoapply src/app worker src/__tests__
+    git commit -m "[FORGE] AR-16.3: submission evidence enforced at the database, not by convention"
+    git push origin main
+  gates:
+  - type: compile
+  - type: test
+  - type: file_exists
+    files:
+    - src/__tests__/integration/submission-evidence.test.ts
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt

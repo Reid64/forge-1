@@ -1,0 +1,75 @@
+project: benavora
+governance:
+- BLUEPRINT_v2.md
+- SCHEMA_REGISTRY_v2.md
+- AGENTS_v2.md
+- AUTONOMOUS_PLATFORM_VISION.md
+- FEATURE_REGISTRY_v2.md
+- STATE_OF_THE_BUILD.md
+- STANDING_DIRECTIVES.md
+prompts:
+- id: sim-001
+  name: Governance sync and fundraising simulator schema and agent
+  prompt: |
+    First sync governance docs: $repo = 'C:\Users\manag\Documents\benavora'; $forge = 'C:\Users\manag\Documents\FORGE\projects\benavora'; Get-ChildItem $repo -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName (Join-Path $forge $_.Name) -Force }
+
+    Read AUTONOMOUS_PLATFORM_VISION.md section on Predictive Fundraising Simulator.
+    Read src/lib/agents/autonomous-base.ts in full.
+    Read src/lib/agents/funding-forecast-agent.ts in full for patterns.
+
+    Create migration src/supabase/migrations/[NEXT]_fundraising_simulator.sql:
+    CREATE TABLE IF NOT EXISTS simulation_scenarios (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, scenario_name text NOT NULL, scenario_type text NOT NULL CHECK (scenario_type IN ('board_expansion','staff_hire','geographic_expansion','new_program','budget_increase','partnership')), variables jsonb NOT NULL DEFAULT '{}', projected_revenue numeric, projected_grants integer, probability_improvement numeric, cost_estimate numeric, roi_multiple numeric, payback_months integer, risk_factors jsonb DEFAULT '[]', confidence text CHECK (confidence IN ('high','medium','low')), generated_at timestamptz DEFAULT now());
+    ALTER TABLE simulation_scenarios ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY sim_org ON simulation_scenarios USING (org_id = (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+    Apply via Supabase SQL editor.
+
+    Create src/lib/agents/simulation-agent.ts extending AutonomousAgent. AG-37.
+    run(triggerSource) with input: { scenarioType: string, variables: Record<string, unknown> }:
+    1. startRun.
+    2. Load org current state: annual_revenue, num_board_members, num_staff, programs_count, geographic_areas, current_success_rate from outcomes.
+    3. Load platform_learning_patterns for org NTEE/funder context.
+    4. Call Claude (claude-sonnet-4-6, max_tokens 1200): System: You are a nonprofit financial modeling expert. Return JSON only: { projected_revenue_increase: number, projected_additional_grants: number, probability_improvement: number, cost_estimate: number, roi_multiple: number, payback_months: number, risk_factors: string[], confidence: high|medium|low, reasoning: string, year_1: number, year_2: number, year_3: number }
+    User: current org state + scenario type + variables + platform learning patterns for context.
+    5. Insert simulation_scenarios record.
+    6. logDecision.
+    7. completeRun.
+
+    Run pnpm tsc --noEmit, fix errors.
+    Commit: git add -A; git commit -m 'feat: AG-37 fundraising simulator agent what-if scenario modeling'; git push.
+
+- id: sim-002
+  name: Fundraising simulator UI with scenario builder plus deploy
+  prompt: |
+    Read src/lib/agents/simulation-agent.ts in full.
+    CRITICAL: Inline style={{}} only. Hardcoded hex values. Canvas #D6E4F0.
+
+    Create src/app/api/reports/simulate/route.ts: POST accepts { scenarioType, variables }. Runs SimulationAgent. Returns simulation_scenarios record.
+    GET returns all simulation_scenarios for org ordered by generated_at DESC.
+
+    Create src/app/(dashboard)/reports/simulate/page.tsx (use client):
+    Header: Fundraising Simulator H1, subtitle Model the financial impact of strategic decisions.
+    Scenario Builder card (white, border-radius 14px, padding 28px):
+      Scenario type selector buttons (Board Expansion, Staff Hire, Geographic Expansion, New Program, Budget Increase, Partnership) -- styled as toggle cards with icons and colors.
+      Variable inputs that change based on scenario type:
+        Board Expansion: How many board members? slider 1-10. Expected sectors (multi-select: corporate, legal, finance, nonprofit).
+        Staff Hire: Role (grant writer, development director, program manager). Salary range inputs.
+        Geographic Expansion: Target city/state input. Distance from current area slider.
+        New Program: Program type input. Target population. Estimated participants.
+      Run Simulation button #8B5CF6 calls POST route. Shows loading spinner.
+
+    Results panel (appears after simulation, white card):
+      Revenue Projection large number green. Probability Improvement +X% badge. ROI Multiple Xx badge. Payback Period X months.
+      3-year projection chart (simple bar chart using inline SVG -- 3 bars for Year 1/2/3 projected revenue).
+      Risk Factors list with warning icons.
+      Reasoning text italic.
+      Confidence badge.
+
+    Past Simulations list below: scenario_name, type badge, projected_revenue, generated_at, View button.
+
+    Add nav entry under Reports: Simulator href /reports/simulate.
+    Update FEATURE_REGISTRY_v2.md feature 224 status to BUILT.
+    Run pnpm tsc --noEmit. Run pnpm build, fix errors.
+    git add -A; git commit -m 'feat: fundraising simulator UI scenario builder 3-year projection'; git push.
+    npx vercel deploy --prod.
+    Report the production URL.

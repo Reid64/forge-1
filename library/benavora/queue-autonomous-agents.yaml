@@ -1,0 +1,1056 @@
+project: benavora
+governance:
+- BLUEPRINT_v2.md
+- SCHEMA_REGISTRY_v2.md
+- AGENTS_v2.md
+- BEHAVIORAL_CONTRACTS.md
+- WORKER_ARCHITECTURE_v2.md
+- FEATURE_REGISTRY_v2.md
+- STATE_OF_THE_BUILD.md
+- SESSION_STATE.md
+prompts:
+
+# ============================================================
+# CATEGORY 1 — AUTONOMOUS INFRASTRUCTURE (4 prompts)
+# ============================================================
+
+- id: infra-001
+  name: Autonomous infrastructure schema migration
+  prompt: |
+    Read SCHEMA_REGISTRY_v2.md in full. Read src/supabase/migrations/ and find the highest-numbered migration file.
+
+    Create the next migration at src/supabase/migrations/[NEXT]_autonomous_agent_infrastructure.sql
+
+    Use ASCII characters only in all SQL. Apply via Supabase Management API POST https://api.supabase.com/v1/projects/vbjplpquqxxfbpazyalt/database/query with Authorization Bearer $env:SUPABASE_ACCESS_TOKEN (read it from the environment - NEVER paste a Supabase personal access token into a queue file; redacted 2026-09-19 after GitHub push protection blocked this repo). Use JavaScriptSerializer pattern for JSON body.
+
+    SQL to execute:
+
+    CREATE TABLE IF NOT EXISTS autonomous_triggers (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      agent_id text NOT NULL,
+      trigger_type text NOT NULL CHECK (trigger_type IN ('schedule','threshold','event','chain')),
+      condition_field text,
+      condition_operator text CHECK (condition_operator IN ('gte','lte','eq','neq','gt','lt')),
+      condition_value numeric,
+      event_type text,
+      is_enabled boolean DEFAULT true,
+      last_fired_at timestamptz,
+      fire_count integer DEFAULT 0,
+      created_at timestamptz DEFAULT now()
+    );
+    ALTER TABLE autonomous_triggers ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY "triggers_org" ON autonomous_triggers USING (org_id = (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+    CREATE INDEX idx_auto_triggers_org ON autonomous_triggers(org_id, agent_id, is_enabled);
+
+    CREATE TABLE IF NOT EXISTS agent_queue (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      agent_id text NOT NULL,
+      priority integer DEFAULT 5 CHECK (priority BETWEEN 1 AND 10),
+      status text DEFAULT 'queued' CHECK (status IN ('queued','processing','completed','failed','cancelled')),
+      trigger_source text NOT NULL CHECK (trigger_source IN ('autonomous','manual','chain','schedule')),
+      input_payload jsonb DEFAULT '{}',
+      output_payload jsonb DEFAULT '{}',
+      decision_log jsonb DEFAULT '[]',
+      error_message text,
+      queued_at timestamptz DEFAULT now(),
+      started_at timestamptz,
+      completed_at timestamptz,
+      retry_count integer DEFAULT 0,
+      max_retries integer DEFAULT 3
+    );
+    ALTER TABLE agent_queue ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY "queue_org" ON agent_queue USING (org_id = (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+    CREATE INDEX idx_agent_queue_status ON agent_queue(status, priority DESC, queued_at ASC);
+    CREATE INDEX idx_agent_queue_org ON agent_queue(org_id, agent_id, status);
+
+    CREATE TABLE IF NOT EXISTS agent_decisions (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      agent_run_id uuid REFERENCES agent_runs(id),
+      agent_id text NOT NULL,
+      decision_type text NOT NULL,
+      entity_type text,
+      entity_id uuid,
+      reasoning text NOT NULL,
+      confidence_score integer CHECK (confidence_score BETWEEN 0 AND 100),
+      action_taken text NOT NULL,
+      action_payload jsonb DEFAULT '{}',
+      required_human_review boolean DEFAULT false,
+      human_reviewed_at timestamptz,
+      human_reviewer_id uuid REFERENCES profiles(id),
+      human_verdict text CHECK (human_verdict IN ('approved','rejected','modified')),
+      created_at timestamptz DEFAULT now()
+    );
+    ALTER TABLE agent_decisions ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY "decisions_org" ON agent_decisions USING (org_id = (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+    CREATE INDEX idx_decisions_org ON agent_decisions(org_id, agent_id, created_at DESC);
+    CREATE INDEX idx_decisions_review ON agent_decisions(org_id, required_human_review, human_reviewed_at);
+
+    CREATE TABLE IF NOT EXISTS org_autonomous_config (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id uuid NOT NULL UNIQUE REFERENCES organizations(id) ON DELETE CASCADE,
+      auto_research_enabled boolean DEFAULT false,
+      auto_score_enabled boolean DEFAULT false,
+      auto_draft_enabled boolean DEFAULT false,
+      auto_draft_threshold integer DEFAULT 70 CHECK (auto_draft_threshold BETWEEN 50 AND 95),
+      auto_reputation_enabled boolean DEFAULT false,
+      auto_relationship_enabled boolean DEFAULT false,
+      auto_deadline_prediction_enabled boolean DEFAULT false,
+      auto_followup_enabled boolean DEFAULT false,
+      notify_on_auto_draft boolean DEFAULT true,
+      notify_on_high_score boolean DEFAULT true,
+      notify_digest_time text DEFAULT '07:00',
+      max_auto_drafts_per_night integer DEFAULT 10,
+      created_at timestamptz DEFAULT now(),
+      updated_at timestamptz DEFAULT now()
+    );
+    ALTER TABLE org_autonomous_config ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY "auto_config_org" ON org_autonomous_config USING (org_id = (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+    INSERT INTO org_autonomous_config (org_id) SELECT id FROM organizations ON CONFLICT (org_id) DO NOTHING;
+
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS trigger_source text DEFAULT 'manual' CHECK (trigger_source IN ('autonomous','manual','chain','schedule'));
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS next_action text;
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS confidence_score integer CHECK (confidence_score BETWEEN 0 AND 100);
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS items_queued integer DEFAULT 0;
+    ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS chained_from_run_id uuid REFERENCES agent_runs(id);
+
+    ALTER TABLE applications ADD COLUMN IF NOT EXISTS auto_generated boolean DEFAULT false;
+    ALTER TABLE applications ADD COLUMN IF NOT EXISTS pending_review boolean DEFAULT false;
+    ALTER TABLE applications ADD COLUMN IF NOT EXISTS draft_source text DEFAULT 'manual' CHECK (draft_source IN ('manual','autonomous','imported'));
+    ALTER TABLE applications ADD COLUMN IF NOT EXISTS budget_data jsonb DEFAULT '{}';
+    ALTER TABLE applications ADD COLUMN IF NOT EXISTS compliance_check_result jsonb DEFAULT '{}';
+    ALTER TABLE applications ADD COLUMN IF NOT EXISTS fit_analysis jsonb DEFAULT '{}';
+
+    Verify all 4 new tables exist:
+    SELECT table_name FROM information_schema.tables WHERE table_name IN ('autonomous_triggers','agent_queue','agent_decisions','org_autonomous_config');
+
+    Run pnpm tsc --noEmit, fix all errors.
+    Commit: git add -A; git commit -m 'feat: autonomous agent infrastructure schema -- 4 tables, agent_runs extensions, applications extensions'; git push.
+
+- id: infra-002
+  name: AutonomousAgent base class and decision logger
+  prompt: |
+    Read src/lib/agents/ directory listing.
+    Read BEHAVIORAL_CONTRACTS.md sections 9 and 15 in full.
+
+    Create src/lib/agents/autonomous-base.ts:
+
+    Export the following constant as the first thing in the file:
+    export const AUTONOMOUS_HARD_LIMITS = {
+      NEVER_SUBMIT_EXTERNALLY: true,
+      NEVER_SEND_EMAIL_WITHOUT_APPROVAL: true,
+      NEVER_DELETE_USER_DATA: true,
+      NEVER_MODIFY_GOVERNANCE_FILES: true,
+      MAX_DRAFTS_PER_NIGHT_DEFAULT: 10,
+      MIN_CONFIDENCE_TO_ACT: 60,
+    } as const;
+
+    Export interface AutonomousAgentResult {
+      success: boolean;
+      itemsFound: number;
+      itemsProcessed: number;
+      itemsQueued: number;
+      decisions: string[];
+      nextActions: string[];
+      errors: string[];
+    }
+
+    Export interface OrgAutonomousConfig {
+      auto_research_enabled: boolean;
+      auto_score_enabled: boolean;
+      auto_draft_enabled: boolean;
+      auto_draft_threshold: number;
+      auto_reputation_enabled: boolean;
+      auto_relationship_enabled: boolean;
+      auto_deadline_prediction_enabled: boolean;
+      auto_followup_enabled: boolean;
+      notify_on_auto_draft: boolean;
+      notify_on_high_score: boolean;
+      max_auto_drafts_per_night: number;
+    }
+
+    Export abstract class AutonomousAgent with:
+
+    protected orgId: string;
+    protected agentId: string;
+    protected supabase: SupabaseClient;
+
+    constructor(orgId: string, agentId: string, supabase: SupabaseClient)
+
+    protected async logDecision(params: {
+      decisionType: string;
+      agentRunId?: string;
+      entityType?: string;
+      entityId?: string;
+      reasoning: string;
+      confidenceScore: number;
+      actionTaken: string;
+      actionPayload?: Record<string, unknown>;
+      requiredHumanReview?: boolean;
+    }): Promise<string>
+    -- inserts into agent_decisions, returns decision id. If confidenceScore < 60, forces requiredHumanReview=true.
+
+    protected async startRun(triggerSource: 'autonomous' | 'manual' | 'chain' | 'schedule', inputParams?: Record<string, unknown>): Promise<string>
+    -- inserts into agent_runs with status='running', agent_type=this.agentId, trigger_source, started_at=now(). Returns runId.
+
+    protected async completeRun(runId: string, params: {
+      outputSummary: string;
+      itemsFound?: number;
+      itemsProcessed?: number;
+      itemsQueued?: number;
+      tokensUsed?: number;
+      nextAction?: string;
+      confidenceScore?: number;
+    }): Promise<void>
+    -- updates agent_runs: status='completed', completed_at=now(), all provided fields.
+
+    protected async failRun(runId: string, errorMessage: string): Promise<void>
+    -- updates agent_runs: status='failed', completed_at=now(), error_message.
+
+    protected async queueChainedAgent(agentId: string, priority: number, inputPayload: Record<string, unknown>, chainedFromRunId?: string): Promise<void>
+    -- inserts into agent_queue: org_id, agent_id, priority, trigger_source='chain', input_payload, status='queued'.
+
+    protected async getOrgConfig(): Promise<OrgAutonomousConfig>
+    -- fetches org_autonomous_config for this.orgId. If not found, returns safe defaults (all false, threshold=70, max_drafts=10).
+
+    protected async createNotification(type: string, title: string, message: string, metadata?: Record<string, unknown>): Promise<void>
+    -- inserts into notifications table (find exact column names by reading notifications table schema first).
+
+    abstract run(triggerSource: 'autonomous' | 'manual' | 'chain' | 'schedule'): Promise<AutonomousAgentResult>;
+
+    Run pnpm tsc --noEmit, fix all errors.
+    Commit: git add -A; git commit -m 'feat: AutonomousAgent base class with AUTONOMOUS_HARD_LIMITS, decision logging, chain support'; git push.
+
+- id: infra-003
+  name: Autonomous Orchestrator Railway worker integration
+  prompt: |
+    Read worker/scheduler.ts in full.
+    Read worker/agent-runner.ts in full.
+    Read worker/index.ts in full.
+    Read src/lib/agents/autonomous-base.ts in full.
+    Read WORKER_ARCHITECTURE_v2.md sections 3, 4, and 7 in full.
+
+    Create worker/autonomous-orchestrator.ts:
+
+    Import all autonomous agent classes (use dynamic imports to avoid circular deps):
+    OpportunityDiscoveryAgent, ProbabilityScoringAgent, DraftGenerationAgent, ReputationAgent, RelationshipBuilderAgent, DeadlinePredictionAgent, FollowupGeneratorAgent, AutonomousDigestAgent, EligibilityScoringAgent, DeadlineExtractionAgent, ComplianceCheckAgent, FitAnalysisAgent, BudgetBuilderAgent, RenewalTrackerAgent, OutcomeAnalyzerAgent, DocumentExpiryAgent, KnowledgeGapAgent, SearchProfileOptimizerAgent.
+
+    Export async function runAutonomousPipeline(supabase: SupabaseClient): Promise<void>
+
+    Steps:
+    1. Query active orgs: organizations WHERE onboarding_completed = true AND stripe_subscription_status IN ('active','trialing') AND status != 'suspended'.
+    2. For each org:
+       a. Load org_autonomous_config. If all auto flags false: skip this org.
+       b. Log pipeline start: insert agent_runs with agent_type='autonomous_orchestrator', status='running', trigger_source='schedule'.
+       c. Run each agent in order, respecting its enabled flag. Wrap each in try/catch -- failure of one agent never stops the next.
+          Order: discovery -> eligibility_scoring -> probability_scoring -> draft_generation -> reputation -> relationship -> deadline_prediction -> renewal_tracker -> document_expiry -> knowledge_gap (weekly only) -> search_optimizer (monthly only).
+       d. Sleep 2000ms between orgs.
+       e. Mark pipeline run completed.
+    3. After all orgs: trigger digest agent for each org that had activity.
+
+    Export async function processAgentQueue(supabase: SupabaseClient): Promise<void>
+    - Poll agent_queue WHERE status='queued' ORDER BY priority DESC, queued_at ASC LIMIT 1.
+    - Set status='processing', started_at=now().
+    - Route to correct agent class by agent_id string.
+    - On success: set status='completed', completed_at=now().
+    - On failure: increment retry_count. If retry_count >= max_retries: set status='failed'. Else set status='queued'.
+    - Sleep 30000ms between polls when queue is empty.
+
+    Update worker/scheduler.ts: add runAutonomousPipeline to the cron schedule at 2:00 AM CST.
+    Update worker/index.ts: start processAgentQueue in the boot sequence alongside the AutoApply queue processor.
+
+    Run pnpm tsc --noEmit, fix all errors.
+    Commit: git add -A; git commit -m 'feat: autonomous orchestrator + agent queue processor integrated into Railway worker'; git push.
+
+- id: infra-004
+  name: Autonomous API routes
+  prompt: |
+    Read src/lib/agents/autonomous-base.ts in full.
+    Read src/app/api/intelligence/ directory listing for route patterns.
+    Read src/lib/supabase/server.ts to understand createClient pattern.
+
+    Create src/app/api/autonomous/config/route.ts:
+      GET: Returns org_autonomous_config for the authenticated user's org. Derive org_id server-side from profile. If no config exists return defaults. Return 200 with config JSON.
+      PATCH: Accept partial org_autonomous_config body. Validate auto_draft_threshold between 50-95. Upsert into org_autonomous_config. Return updated config.
+
+    Create src/app/api/autonomous/decisions/route.ts:
+      GET: Returns agent_decisions for the org ordered by created_at DESC. Accept ?agentId= filter. Accept ?requiresReview=true filter (where required_human_review=true AND human_reviewed_at IS NULL). Limit 50. Accept ?cursor= (created_at timestamp) for pagination.
+      PATCH: Accept { id, verdict: 'approved'|'rejected'|'modified', notes?: string }. Set human_reviewed_at=now(), human_reviewer_id=user.id, human_verdict=verdict on the decision. Return 200.
+
+    Create src/app/api/autonomous/queue/route.ts:
+      GET: Returns agent_queue items for the org with status IN ('queued','processing') ordered by priority DESC, queued_at ASC.
+      DELETE: Accept { id }. Set status='cancelled' only if current status='queued'. Return 400 if already processing.
+
+    Create src/app/api/autonomous/trigger/route.ts:
+      POST: Accept { agentId: string }. Insert into agent_queue: org_id from profile, agent_id, priority=9, trigger_source='manual', status='queued'. Return { queueItemId }.
+
+    All routes: authenticate via createClient(), derive org_id from profiles, return consistent error shape { error: string, code: string }.
+
+    Run pnpm tsc --noEmit, fix all errors.
+    Commit: git add -A; git commit -m 'feat: autonomous config, decisions, queue, and trigger API routes'; git push.
+
+# ============================================================
+# CATEGORY 2 — CORE AUTONOMOUS LOOP (4 prompts)
+# ============================================================
+
+- id: loop-001
+  name: AG-17 Autonomous Opportunity Discovery Agent
+  prompt: |
+    Read src/lib/agents/autonomous-base.ts in full.
+    Read src/lib/agents/opportunity-discovery-agent.ts in full (or search for it if path differs).
+    Read BEHAVIORAL_CONTRACTS.md section 5 in full.
+
+    Rewrite src/lib/agents/opportunity-discovery-agent.ts to extend AutonomousAgent.
+
+    Keep ALL existing source adapter logic (Grants.gov, SAM.gov calls) exactly as-is.
+
+    Add autonomous behavior:
+    1. Call this.startRun(triggerSource).
+    2. Load active search profiles for org.
+    3. For each profile: run existing discovery logic. For each discovered opportunity:
+       a. Dedup check: query opportunities WHERE (source_url = discovered_url OR (name = discovered_name AND organization_id = orgId)) AND organization_id = orgId.
+       b. If new: insert opportunity with source='agent', status='open'. Record the new id.
+       c. Call this.logDecision({ decisionType: 'opportunity_discovered', entityType: 'opportunity', entityId: newOppId, reasoning: 'New opportunity matching profile ' + profileName + ': ' + title + '. Amount: ' + amount + '. Deadline: ' + deadline, confidenceScore: 85, actionTaken: 'inserted_opportunity' }).
+       d. If duplicate: skip.
+    4. After all profiles: load config. If config.auto_score_enabled AND newOpportunityIds.length > 0: call this.queueChainedAgent('ag-15-probability', 7, { opportunityIds: newOpportunityIds }).
+    5. Call this.completeRun(runId, { outputSummary: JSON.stringify({ newOpportunities: count, duplicatesSkipped: dupeCount, chainedToScoring: didChain, opportunityIds: newOpportunityIds }), itemsFound: count, itemsQueued: didChain ? 1 : 0 }).
+
+    Run pnpm tsc --noEmit, fix all errors.
+    Commit: git add -A; git commit -m 'feat: AG-17 opportunity discovery -- AutonomousAgent, decision logging, chains to AG-15'; git push.
+
+- id: loop-002
+  name: AG-15 Autonomous Probability Scoring Agent
+  prompt: |
+    Read src/lib/agents/autonomous-base.ts in full.
+    Read src/lib/intelligence/grant-probability-engine.ts in full.
+    Read src/scripts/batch-score-opportunities.ts in full (or search for the batch scoring script).
+
+    Create src/lib/agents/probability-scoring-agent.ts extending AutonomousAgent.
+
+    run(triggerSource) implementation:
+    1. this.startRun(triggerSource).
+    2. Determine scope:
+       - If triggerSource === 'chain': read this.supabase query on agent_queue to get input_payload.opportunityIds for the currently processing queue item. Use those IDs.
+       - Otherwise: query all opportunities for org WHERE status='open' AND (id NOT IN (SELECT opportunity_id FROM opportunity_probability_scores WHERE organization_id=orgId) OR last scored > 7 days ago).
+    3. Load org digital twin from organizational_digital_twins WHERE org_id=orgId (most recent).
+    4. Load org config.
+    5. For each opportunity: call existing grant-probability-engine.ts scoring logic. Upsert into opportunity_probability_scores.
+    6. Call this.logDecision with decisionType='probability_scored', entityType='opportunity', entityId=opp.id, reasoning='Scored ' + opp.name + ' at ' + score + '%. Mission alignment: ' + missionScore + '%. Deadline urgency: ' + urgency + '%.', confidenceScore=score, actionTaken='upserted_probability_score'.
+    7. If score >= config.auto_draft_threshold AND config.auto_draft_enabled: call this.queueChainedAgent('ag-05-draft', 8, { opportunityId: opp.id, score, title: opp.name, funderId: opp.funder_id }).
+    8. this.completeRun(runId, { outputSummary: JSON.stringify({ scored, aboveThreshold, draftQueued }), itemsProcessed: scored, itemsQueued: draftQueued }).
+
+    Run pnpm tsc --noEmit, fix all errors.
+    Commit: git add -A; git commit -m 'feat: AG-15 probability scoring -- autonomous mode, threshold gate, chains to AG-05 draft'; git push.
+
+- id: loop-003
+  name: AG-05 Autonomous Draft Generation Agent
+  prompt: |
+    Read src/lib/agents/autonomous-base.ts in full.
+    Read BEHAVIORAL_CONTRACTS.md sections 9 and 15 in full.
+    Read AGENTS.md section for Agent 05 in full.
+    Search src/lib/ for draft generation logic -- look for files containing 'draft_content' or 'narrative' generation. Read the most relevant file in full.
+
+    Create src/lib/agents/draft-generation-agent.ts extending AutonomousAgent.
+
+    HARD LIMITS (must be enforced in code with comments):
+    // HARD LIMIT: Never submit externally. Never call AutoApply. Never set submitted_at.
+    // HARD LIMIT: Always set pending_review=true and auto_generated=true on created applications.
+    // HARD LIMIT: Never create more than max_auto_drafts_per_night per org per day.
+
+    run(triggerSource) implementation:
+    1. this.startRun(triggerSource).
+    2. Get config. Check draft limit: count applications WHERE org_id=orgId AND auto_generated=true AND created_at >= today midnight. If count >= config.max_auto_drafts_per_night: log decision with actionTaken='skipped_daily_limit_reached', completeRun, return.
+    3. Read input: if chain, get { opportunityId, score, title, funderId } from queue payload. If manual, get opportunityId from input params.
+    4. Load opportunity, funder.
+    5. Load KB: org profile (knowledge_base_profiles), narratives by category matching opportunity category, proven narratives by funder_category sorted by effectiveness_score DESC limit 5, digital twin summary if exists.
+    6. Call Claude API (claude-sonnet-4-6, max_tokens 4000):
+       System: 'You are an expert grant writer for {orgName}. Use ONLY the provided organizational data. Never fabricate statistics, certifications, or financial figures not in the data. Flag missing required data with [NEEDS INPUT: description].'
+       User: Opportunity details + all KB content + proven narratives labeled as high-weight examples.
+    7. Calculate confidence: count [NEEDS INPUT] occurrences. If 0: 90+. If 1-2: 75. If 3+: 60. Reduce by 10 if no proven narratives used.
+    8. Create application record: stage='drafting', draft_content=generated, confidence_score=confidence, auto_generated=true, pending_review=true, draft_source='autonomous', organization_id=orgId, opportunity_id=opportunityId.
+    9. this.logDecision({ decisionType: 'draft_generated', entityType: 'application', entityId: newAppId, reasoning: 'Auto-generated draft for ' + title + ' (probability: ' + score + '%). Confidence: ' + confidence + '%.', confidenceScore: confidence, actionTaken: 'created_draft_pending_review', requiredHumanReview: true }).
+    10. this.createNotification('autonomous_draft_ready', 'AI Draft Ready for Review', title + ' -- AI draft ready. Confidence: ' + confidence + '%. Click to review.', { applicationId: newAppId, opportunityId, confidence, probabilityScore: score }).
+    11. this.completeRun(runId, { outputSummary: JSON.stringify({ draftCreated: true, applicationId: newAppId, confidence, requiresReview: true }), itemsProcessed: 1 }).
+
+    Run pnpm tsc --noEmit, fix all errors.
+    Commit: git add -A; git commit -m 'feat: AG-05 autonomous draft agent -- pending_review=true, hard limits enforced, never submits externally'; git push.
+
+- id: loop-004
+  name: Autonomous morning digest agent
+  prompt: |
+    Read src/lib/agents/autonomous-base.ts in full.
+    Search src/lib/agents/ for morning-digest.ts and read if it exists.
+
+    Create src/lib/agents/autonomous-digest-agent.ts extending AutonomousAgent.
+
+    run(triggerSource) implementation:
+    1. this.startRun(triggerSource).
+    2. Get midnight timestamp: new Date(); set to 00:00:00.000 today.
+    3. Query agent_decisions WHERE org_id=orgId AND created_at >= midnight.
+    4. Calculate summary counts:
+       - opportunities_discovered: decisions WHERE decision_type='opportunity_discovered'
+       - opportunities_scored: decisions WHERE decision_type='probability_scored'
+       - high_score: decisions WHERE decision_type='probability_scored' AND confidence_score >= threshold
+       - drafts_generated: decisions WHERE decision_type='draft_generated'
+       - drafts_pending_review: applications WHERE auto_generated=true AND pending_review=true AND organization_id=orgId AND created_at >= midnight
+       - reputation_alerts: reputation_alerts WHERE org_id=orgId AND created_at >= midnight
+       - relationship_recs: relationship_recommendations WHERE org_id=orgId AND created_at >= midnight
+    5. If all counts = 0: completeRun with outputSummary='No overnight activity -- digest skipped'. Return.
+    6. Call Claude API (claude-sonnet-4-6, max_tokens 400):
+       System: 'You are writing a concise morning briefing for a nonprofit executive director.'
+       User: 'Write a 3-sentence morning briefing. Overnight your AI platform discovered ' + discovered + ' new opportunities, scored ' + scored + ' opportunities (' + highScore + ' above your draft threshold), generated ' + drafts + ' draft applications now pending your review, detected ' + reputationAlerts + ' reputation signals, and created ' + relationshipRecs + ' relationship recommendations. Lead with the most actionable item. Be specific with numbers. Professional but warm tone.'
+    7. this.createNotification('morning_digest', 'Good morning -- here is what happened overnight', aiResponse, { summary: { opportunities_discovered, opportunities_scored, drafts_generated, reputation_alerts } }).
+    8. this.completeRun.
+
+    Update worker/scheduler.ts: add AutonomousDigestAgent run at 7:00 AM CST for all active orgs (same pattern as other nightly agents).
+
+    Run pnpm tsc --noEmit, fix all errors.
+    Commit: git add -A; git commit -m 'feat: autonomous morning digest agent -- 7AM overnight activity summary with AI briefing'; git push.
+
+# ============================================================
+# CATEGORY 3 — SUPPORTING AUTONOMOUS AGENTS (8 prompts)
+# ============================================================
+
+- id: agent-001
+  name: AG-18 Autonomous Reputation Intelligence Agent
+  prompt: |
+    Read src/lib/agents/autonomous-base.ts in full.
+    Read src/lib/intelligence/reputation-agent.ts in full.
+    Read the reputation_alerts table schema from SCHEMA_REGISTRY_v2.md.
+
+    Rewrite src/lib/intelligence/reputation-agent.ts to extend AutonomousAgent.
+
+    Add to the existing signal detection logic (keep all existing code, add autonomous layer on top):
+
+    For each signal found, classify severity:
+    - CRITICAL: legal action, scandal, fraud, license revocation affecting a funder
+    - HIGH: leadership change at a major funder (CEO/ED departure, new program officer)
+    - MEDIUM: new strategic priority or geographic shift announcement
+    - LOW: general news, awards, conference appearances
+
+    After creating each reputation_alerts record:
+    1. Call this.logDecision({ decisionType: 'reputation_signal_detected', entityType: 'funder', entityId: funderId, reasoning: 'Signal for ' + funderName + ': ' + signalSummary + '. Severity: ' + severity + '.', confidenceScore: 75, actionTaken: 'created_reputation_alert', requiredHumanReview: severity === 'CRITICAL' || severity === 'HIGH' }).
+    2. If severity === 'CRITICAL': immediately call this.createNotification('reputation_critical', 'URGENT: Critical funder signal detected', funderName + ': ' + signalSummary, { funderId, severity, alertId }).
+    3. For HIGH and CRITICAL: also insert into relationship_memory: { org_id: orgId, entity_id: funderId, entity_type: 'funder', memory_type: 'press', content: signalSummary, signal_date: today }.
+
+    Update completeRun summary to include: { signalsFound, critical, high, medium, low, alertsCreated, memoryEntriesCreated }.
+
+    Run pnpm tsc --noEmit, fix all errors.
+    Commit: git add -A; git commit -m 'feat: AG-18 reputation intelligence -- severity classification, instant CRITICAL alerts, auto memory entries'; git push.
+
+- id: agent-002
+  name: AG-19 Autonomous Relationship Builder Agent
+  prompt: |
+    Read src/lib/agents/autonomous-base.ts in full.
+    Read SCHEMA_REGISTRY_v2.md for relationship_memory, relationship_recommendations, funder_relationship_scores tables.
+
+    Create src/lib/agents/relationship-builder-agent.ts extending AutonomousAgent.
+
+    run(triggerSource):
+    1. this.startRun(triggerSource).
+    2. Load all funders for org.
+    3. Load config. Load threshold from config.auto_draft_threshold (reuse same threshold concept for relationship scoring floor).
+    4. For each funder:
+       a. Load last 10 relationship_memory entries WHERE org_id=orgId AND entity_id=funder.id ORDER BY created_at DESC.
+       b. Load funder_relationship_scores WHERE org_id=orgId AND funder_id=funder.id (may not exist).
+       c. Calculate score (deterministic):
+          base = 50
+          if lastMemoryDate within 14 days: +15
+          elif lastMemoryDate within 30 days: +10
+          for each memory in last 90 days: +5 (max +20)
+          if has awarded outcome with this funder: +10
+          if no contact in 180 days: -10
+          if no contact in 365 days: -20
+          clamp to 0-100
+       d. Calculate momentum: 'rising' if newScore > previousScore + 5, 'declining' if newScore < previousScore - 5, else 'stable'.
+       e. Upsert funder_relationship_scores: { org_id, funder_id, score: newScore, momentum, last_calculated_at: now() }.
+       f. If newScore < 40: skip Claude call for this funder (log decision with actionTaken='score_updated_low_priority_skipped').
+       g. If newScore >= 40: check if pending recommendation exists (relationship_recommendations WHERE org_id=orgId AND entity_id=funder.id AND status='pending'). If exists: skip.
+       h. If no pending recommendation: call Claude (claude-sonnet-4-6, max_tokens 300):
+          System: 'You are a nonprofit relationship strategist. Return JSON only: { recommendation: string, urgency: "urgent"|"normal"|"low", reasoning: string }'
+          User: funder name, score=newScore, momentum, last 5 memory entries with type+content+date.
+       i. Insert relationship_recommendations: { org_id, entity_id: funder.id, entity_type: 'funder', recommendation_text, urgency, status: 'pending' }.
+       j. this.logDecision({ decisionType: 'relationship_recommendation_generated', entityType: 'funder', entityId: funder.id, reasoning: 'Score ' + newScore + ' (' + momentum + '). ' + claudeResult.reasoning, confidenceScore: newScore, actionTaken: 'inserted_recommendation' }).
+    5. this.completeRun with summary { fundersAnalyzed, scoresUpdated, recommendationsGenerated, skippedLowPriority }.
+
+    Run pnpm tsc --noEmit, fix all errors.
+    Commit: git add -A; git commit -m 'feat: AG-19 relationship builder -- nightly scoring, momentum, AI recommendations, decision logging'; git push.
+
+- id: agent-003
+  name: AG-25 Autonomous Deadline Prediction Agent
+  prompt: |
+    Read src/lib/agents/autonomous-base.ts in full.
+    Read SCHEMA_REGISTRY_v2.md for opportunities and funders tables.
+
+    Create src/lib/agents/deadline-prediction-agent.ts extending AutonomousAgent.
+
+    run(triggerSource):
+    1. this.startRun(triggerSource).
+    2. Load all funders for org that have >= 2 historical opportunities (status IN ('closed','expired','awarded')).
+    3. For each qualifying funder:
+       a. Load all historical opportunities ordered by deadline ASC. Extract deadline dates array.
+       b. If < 2 data points: skip.
+       c. Calculate gaps between consecutive deadlines in days.
+       d. Determine pattern:
+          - 'annual': all gaps within 330-400 days of each other (12 months +/- 35 days)
+          - 'quarterly': all gaps within 80-100 days
+          - 'rolling': no consistent pattern
+       e. If pattern is annual or quarterly:
+          - Predict next deadline = last_deadline + average_gap_days
+          - Confidence = 85 if 3+ data points, 65 if exactly 2
+          - If predictedDate within 90 days from today AND no open opportunity for this funder:
+            Insert opportunity: name=funder.name + ' -- Predicted ' + year + ' Cycle', status='open', source='agent', organization_id=orgId, funder_id=funder.id, deadline=predictedDate, notes='Auto-predicted by Deadline Prediction Agent. ' + dataPointCount + ' historical cycles. Confidence: ' + confidence + '%. Pattern: ' + pattern + '.'.
+            this.logDecision({ decisionType: 'deadline_predicted', entityType: 'opportunity', entityId: newOppId, reasoning: pattern + ' pattern detected for ' + funder.name + ' across ' + count + ' cycles. Predicted next deadline: ' + predictedDate + '. Avg cycle: ' + avgDays + ' days.', confidenceScore: confidence, actionTaken: 'created_projected_opportunity', requiredHumanReview: true }).
+    4. this.completeRun with summary { fundersAnalyzed, patternsDetected, opportunitiesCreated }.
+
+    Run pnpm tsc --noEmit, fix all errors.
+    Commit: git add -A; git commit -m 'feat: AG-25 deadline prediction -- pattern detection, auto-creates projected opportunities within 90 days'; git push.
+
+- id: agent-004
+  name: AG-28 Autonomous Follow-Up Generator Agent
+  prompt: |
+    Read src/lib/agents/autonomous-base.ts in full.
+    Read SCHEMA_REGISTRY_v2.md for follow_up_sequences and applications tables.
+
+    Create src/lib/agents/followup-generator-agent.ts extending AutonomousAgent.
+
+    This agent is EVENT-DRIVEN via agent_queue. Input payload: { applicationId: string, newStage: string, previousStage: string }.
+
+    HARD LIMIT comment at top: // HARD LIMIT: This agent schedules follow-ups only. It never sends emails directly. All records created have status='scheduled'.
+
+    run(triggerSource):
+    1. this.startRun(triggerSource).
+    2. Read input from agent_queue input_payload (search for the currently processing queue item for this org and agent_id).
+    3. Load application, opportunity, funder, funder contact (preferred channel).
+    4. Switch on newStage:
+       CASE 'submitted':
+         - followupDate = opportunity.deadline + 14 days
+         - Call Claude (max_tokens 200): 'Write a professional 3-sentence check-in email for a nonprofit following up on a grant submitted to {funderName}. Acknowledge the submission, express continued interest, offer to provide additional information.'
+         - Insert follow_up_sequences: { application_id, scheduled_date: followupDate, channel: contactChannel or 'email', content: claudeResponse, status: 'scheduled', follow_up_type: 'check_in' }
+         - this.logDecision({ decisionType: 'followup_scheduled', reasoning: 'Application submitted to ' + funderName + '. Check-in scheduled for ' + followupDate + '.', actionTaken: 'created_followup_sequence', confidenceScore: 90 })
+       CASE 'awarded':
+         - thankDate = today + 3 days
+         - Call Claude (max_tokens 200): 'Write a warm, professional thank you email from a nonprofit to {funderName} for awarding a grant of {amount}.'
+         - Insert follow_up_sequences: thank you with scheduled_date = thankDate
+         - If opportunity.is_recurring: insert renewal_prep with scheduled_date = opportunity.deadline + 275 days (9 months out)
+         - this.logDecision({ decisionType: 'award_followup_scheduled', actionTaken: 'created_award_followups', confidenceScore: 95 })
+       CASE 'denied':
+         - feedbackDate = today + 7 days
+         - Call Claude (max_tokens 150): 'Write a gracious 2-sentence email requesting feedback after a grant denial from {funderName}.'
+         - Insert follow_up_sequences: feedback_request with scheduled_date = feedbackDate
+         - this.logDecision({ decisionType: 'denial_followup_scheduled', actionTaken: 'created_denial_followup', confidenceScore: 85 })
+    5. this.completeRun.
+
+    Create src/app/api/autonomous/followup-trigger/route.ts:
+    POST: Accept { applicationId, newStage, previousStage }. If newStage IN ('submitted','awarded','denied'): insert into agent_queue with agent_id='ag-28-followup', trigger_source='event', priority=8, input_payload. Return { queueItemId }.
+
+    Find the application stage-change route (search for pipeline_history insertion in src/app/api/). After creating the pipeline_history record, call /api/autonomous/followup-trigger if newStage IN ('submitted','awarded','denied') using a server-side fetch.
+
+    Run pnpm tsc --noEmit, fix all errors.
+    Commit: git add -A; git commit -m 'feat: AG-28 follow-up generator -- event-driven, auto-schedules on stage transitions, never sends directly'; git push.
+
+- id: agent-005
+  name: AG-02 Autonomous Eligibility Scoring Agent
+  prompt: |
+    Read src/lib/agents/autonomous-base.ts in full.
+    Search src/lib/ for eligibility scoring logic -- look for 'eligibility_score' column updates and read that file in full.
+    Read BEHAVIORAL_CONTRACTS.md section 5 in full.
+
+    Create src/lib/agents/eligibility-scoring-agent.ts extending AutonomousAgent.
+
+    run(triggerSource) with optional input from queue payload: { opportunityIds?: string[] }:
+    1. this.startRun(triggerSource).
+    2. Determine scope: if chain input has opportunityIds, use those. Otherwise query org opportunities WHERE eligibility_score IS NULL AND organization_id=orgId.
+    3. Load org profile from knowledge_base_profiles WHERE organization_id=orgId.
+    4. For each opportunity:
+       a. Load opportunity: eligibility_requirements, category, geographic_restrictions, amount_min, amount_max.
+       b. Call Claude (claude-sonnet-4-6, max_tokens 500): System: 'Score eligibility 0-100. Return JSON only: { score: number, recommendation: "apply"|"skip"|"review", reasoning: string, factors: { mission: number, geographic: number, tax_status: number, budget: number, program: number } }'  User: org profile + opportunity eligibility details.
+       c. Parse. Update opportunity: eligibility_score=score, recommendation, recommendation_reasoning.
+       d. this.logDecision({ decisionType: score >= 70 ? 'eligibility_qualified' : score < 40 ? 'eligibility_disqualified' : 'eligibility_needs_review', entityType: 'opportunity', entityId: opp.id, reasoning: 'Scored ' + opp.name + ': ' + score + '/100. Recommendation: ' + recommendation, confidenceScore: score, actionTaken: 'updated_eligibility_score' }).
+    5. If config.auto_score_enabled: collect ids where score >= 70. If any: this.queueChainedAgent('ag-15-probability', 6, { opportunityIds: qualifiedIds }).
+    6. this.completeRun with summary { scored, qualified, needsReview, disqualified }.
+
+    Run pnpm tsc --noEmit, fix all errors.
+    Commit: git add -A; git commit -m 'feat: AG-02 eligibility scoring -- autonomous, chains qualified opportunities to probability scoring'; git push.
+
+- id: agent-006
+  name: AG-03 Deadline Extraction Agent + AG-07 Compliance Check Agent
+  prompt: |
+    Read src/lib/agents/autonomous-base.ts in full.
+    Read BEHAVIORAL_CONTRACTS.md sections 11 and 6 in full.
+    Search src/lib/ for any existing deadline creation logic.
+
+    Create src/lib/agents/deadline-extraction-agent.ts extending AutonomousAgent.
+    Input from queue payload: { opportunityIds: string[] }
+
+    For each opportunity:
+    1. Load opportunity.deadline. If null: skip.
+    2. today = new Date().toISOString().split('T')[0]
+    3. Create deadline records (no AI, all deterministic):
+       - type='application_deadline', due_date=opportunity.deadline
+       - type='preparation_reminder', due_date= deadline minus 14 days (skip if in past)
+       - type='early_reminder', due_date= deadline minus 30 days (skip if in past)
+    4. Upsert into deadlines table (skip if title+opportunity_id combo already exists).
+    5. this.logDecision({ decisionType: 'deadlines_extracted', entityType: 'opportunity', entityId: opp.id, reasoning: 'Extracted deadline records for ' + opp.name + '. Application deadline: ' + opp.deadline, confidenceScore: 95, actionTaken: 'created_deadline_records' }).
+    6. completeRun summary: { opportunitiesProcessed, deadlinesCreated }.
+
+    Create src/lib/agents/compliance-check-agent.ts extending AutonomousAgent.
+    Input from queue payload: { applicationId: string }
+
+    1. Load application with opportunity (select required_documents) and all application_documents.
+    2. Count [NEEDS INPUT: occurrences in draft_content.
+    3. Compare required_documents array to attached documents (match by category field).
+    4. Build compliance result:
+       missingDocuments = required_documents not found in attached
+       blockers = [...missingDocuments.map(d => 'Missing: ' + d), ...(needsInputCount > 0 ? ['Draft has ' + needsInputCount + ' unresolved [NEEDS INPUT] flags'] : []), ...((application.confidence_score || 100) < 70 ? ['Draft confidence score below 70% -- review required'] : [])]
+       passed = blockers.length === 0
+    5. Update application compliance_check_result = { passed, missingDocuments, needsInputCount, checkedAt: now() }.
+    6. this.logDecision({ decisionType: passed ? 'compliance_passed' : 'compliance_blocked', entityType: 'application', entityId: applicationId, reasoning: passed ? 'All compliance checks passed.' : 'Blocked: ' + blockers.join('; '), confidenceScore: passed ? 95 : 30, actionTaken: passed ? 'compliance_cleared' : 'compliance_blocked', requiredHumanReview: !passed }).
+    7. If !passed: this.createNotification('compliance_blocked', 'Application has compliance issues', 'Your application for ' + opportunity.name + ' cannot be submitted yet.', { applicationId, blockers }).
+    8. completeRun.
+
+    Run pnpm tsc --noEmit, fix all errors.
+    Commit: git add -A; git commit -m 'feat: AG-03 deadline extraction + AG-07 compliance check autonomous agents'; git push.
+
+- id: agent-007
+  name: AG-04 Fit Analysis + AG-06 Budget Builder autonomous agents
+  prompt: |
+    Read src/lib/agents/autonomous-base.ts in full.
+    Read AGENTS.md sections for Agent 04 and Agent 06 in full.
+    Search src/lib/ for budget or fit analysis logic and read any relevant files.
+
+    Create src/lib/agents/fit-analysis-agent.ts extending AutonomousAgent.
+    Fires when opportunity eligibility_score >= 70. Input payload: { opportunityId: string }
+
+    run(triggerSource):
+    1. startRun.
+    2. Load opportunity, org profile, outcomes for same funder_category (calculate success_rate = awarded / total if >= 3 outcomes, else null).
+    3. Estimate effort: 'high' if opportunity.category includes 'federal' or 'government'. 'medium' if 'foundation'. 'low' if 'corporate' or 'in-kind'.
+    4. Call Claude (claude-sonnet-4-6, max_tokens 600): System: 'Return JSON only: { recommendation: "strong_apply"|"apply"|"conditional_apply"|"pass", confidence: number, reasoning: string, conditions: string[]|null, timeEstimateHours: number, expectedROI: string }' User: opportunity details, org profile, historical success rate, effort estimate.
+    5. Create application in 'discovered' stage IF recommendation !== 'pass': { organization_id, opportunity_id, stage: 'discovered', fit_analysis: claudeResult }.
+    6. logDecision({ decisionType: 'fit_analysis_complete', entityType: 'opportunity', entityId: oppId, reasoning: claudeResult.reasoning, confidenceScore: claudeResult.confidence, actionTaken: claudeResult.recommendation !== 'pass' ? 'created_application_discovered_stage' : 'recommended_pass', requiredHumanReview: claudeResult.recommendation === 'conditional_apply' }).
+    7. completeRun.
+
+    Create src/lib/agents/budget-builder-agent.ts extending AutonomousAgent.
+    Fires when application moves to 'drafting' stage and has no budget_data yet. Input payload: { applicationId: string }
+
+    HARD LIMIT comment: // HARD LIMIT: Budget generated for human review only. requiredHumanReview always true.
+
+    run(triggerSource):
+    1. startRun.
+    2. Load application, opportunity (amount range), org KB profile (financials section).
+    3. Call Claude (claude-sonnet-4-6, max_tokens 800): System: 'Create a grant project budget. Use ONLY the provided financial data. Never fabricate dollar amounts not in the data. Return JSON: { lineItems: [{category: string, description: string, amount: number, justification: string}], total: number, narrative: string }' User: opportunity amount range, org financials from KB.
+    4. Update application: budget_data = claudeResult.
+    5. logDecision({ decisionType: 'budget_generated', entityType: 'application', entityId: applicationId, reasoning: 'Budget generated: ' + lineItems.length + ' line items, total $' + total, confidenceScore: 80, actionTaken: 'budget_data_populated', requiredHumanReview: true }).
+    6. completeRun.
+
+    Run pnpm tsc --noEmit, fix all errors.
+    Commit: git add -A; git commit -m 'feat: AG-04 fit analysis + AG-06 budget builder -- autonomous, human review gates enforced'; git push.
+
+- id: agent-008
+  name: AG-08 through AG-12 utility autonomous agents
+  prompt: |
+    Read src/lib/agents/autonomous-base.ts in full.
+    Read AGENTS.md for any information on Agents 08-12.
+
+    Create the following 5 agent files, each extending AutonomousAgent:
+
+    1. src/lib/agents/renewal-tracker-agent.ts (runs monthly)
+    Scan applications WHERE stage='awarded' AND opportunity_id IN (SELECT id FROM opportunities WHERE is_recurring=true). For each: check if a renewal application already exists (application with opportunity linking to same funder in current year). If no renewal exists: create new opportunity record name=originalName + ' -- Renewal ' + nextYear, status='open', source='agent', funder_id, organization_id, deadline=original_deadline + 365 days approximately. logDecision with decisionType='renewal_opportunity_created'. No Claude needed.
+
+    2. src/lib/agents/outcome-analyzer-agent.ts (event-driven on outcome insert, also runs weekly)
+    Load all outcomes for org. Calculate: successRate by category (only if >= 3 outcomes per category), averageAwardSize, dollarEfficiency. Upsert into a jsonb analytics column on the organizations table (add column if missing: analytics jsonb DEFAULT '{}'). Also: for each narrative used in an awarded outcome (check outcome narrative_snapshot and applications.knowledge_sources), increment proven_count on knowledge_base_narratives and set is_proven=true if proven_count >= 2. logDecision for each narrative promoted to is_proven. No external Claude call needed for calculations. One Claude call allowed for insight summary (max_tokens 200): 'In 2 sentences, summarize the funding performance of this org based on: ' + statsJson.
+
+    3. src/lib/agents/document-expiry-agent.ts (runs nightly)
+    Query documents WHERE organization_id=orgId AND expiration_date IS NOT NULL AND expiration_date <= now() + interval '30 days' AND is_active=true. For each: createNotification('document_expiring', 'Document expiring soon', doc.name + ' expires on ' + doc.expiration_date + '. Update this document before it affects your applications.', { documentId: doc.id, expirationDate: doc.expiration_date }). logDecision. No Claude.
+
+    4. src/lib/agents/knowledge-gap-agent.ts (runs weekly)
+    Load knowledge_base_profiles for org. Check which of these 10 standard categories have no KB narratives: mission_statement, programs, financial_overview, impact_data, leadership_board, geographic_service_area, target_population, organizational_history, partnerships, compliance_certifications. For each gap: call Claude (max_tokens 150 per gap, batch into one call): 'For each missing KB category, write one specific helpful sentence telling a nonprofit what information to add. Categories: ' + missingCategories.join(', '). Parse response. createNotification for gaps found. logDecision.
+
+    5. src/lib/agents/search-profile-optimizer-agent.ts (runs monthly)
+    Load all search profiles for org. For each profile: count opportunities discovered in last 90 days (source='agent' linked to this profile) and count of those that scored >= 70. Calculate hit_rate = high_score_count / total_discovered (0 if no discoveries). Identify underperforming profiles (hit_rate < 0.2 OR total_discovered = 0). For each underperforming profile: call Claude (max_tokens 300): 'This nonprofit search profile has underperformed. Keywords: ' + profile.keywords + '. Org mission: ' + orgMission + '. Suggest 5 improved keyword additions to find better-matched grant opportunities.' Store suggestions in createNotification. NEVER modify search profiles directly -- suggestions only. logDecision.
+
+    Register all 5 agents in worker/autonomous-orchestrator.ts at appropriate schedule slots:
+    - renewal_tracker: monthly (first of month check)
+    - outcome_analyzer: weekly (Sunday 1AM)
+    - document_expiry: nightly in pipeline
+    - knowledge_gap: weekly (Sunday 1AM)
+    - search_optimizer: monthly (first of month)
+
+    Run pnpm tsc --noEmit, fix all errors.
+    Commit: git add -A; git commit -m 'feat: AG-08 through AG-12 -- renewal tracker, outcome analyzer, document expiry, knowledge gap, search optimizer'; git push.
+
+# ============================================================
+# CATEGORY 4 — AUTONOMOUS UI (2 prompts)
+# ============================================================
+
+- id: ui-001
+  name: Autonomous settings panel and decision log UI
+  prompt: |
+    Read src/app/api/autonomous/config/route.ts in full.
+    Read src/app/api/autonomous/decisions/route.ts in full.
+    Read src/app/(dashboard)/settings/agents/page.tsx in full.
+    Read src/app/(dashboard)/dashboard/page.tsx for inline style patterns.
+
+    CRITICAL: Use inline style={{}} with hardcoded hex values throughout. No Tailwind color classes. Canvas: #D6E4F0.
+
+    Rewrite src/app/(dashboard)/settings/agents/page.tsx as a 'use client' component.
+
+    SECTION 1 -- Autonomous Pipeline Control:
+    Fetch config from GET /api/autonomous/config on mount.
+    White card (border-radius 12px, box-shadow 0 2px 8px rgba(0,0,0,0.08), padding 24px).
+    Header: 'Autonomous Agent Settings' 22px bold #1A2B3C.
+    Subtext: 'Configure which AI agents operate autonomously overnight. All autonomous actions require human review before external submission.' 13px #6B7280.
+    Toggle rows (each: display flex, justify-content space-between, padding 14px 0, border-bottom 1px solid #E5E7EB):
+    - Opportunity Discovery (auto_research_enabled)
+    - Probability Scoring (auto_score_enabled)
+    - Draft Generation (auto_draft_enabled)
+    - Reputation Intelligence (auto_reputation_enabled)
+    - Relationship Builder (auto_relationship_enabled)
+    - Deadline Prediction (auto_deadline_prediction_enabled)
+    - Follow-Up Scheduling (auto_followup_enabled)
+    Each toggle: button with width 44px height 24px border-radius 12px. Active: background #0EA5E9. Inactive: background #D1D5DB. Circle inside: white 20px circle sliding left/right via CSS. On click: optimistic update + PATCH /api/autonomous/config.
+
+    SECTION 2 -- Draft Threshold (separate white card below):
+    Slider input range 50-95. Label: 'Generate drafts for opportunities scoring above X%'. Color indicator: green #10B981 if >= 75, amber #F59E0B if 60-74, red #EF4444 if < 60. Number input for max_auto_drafts_per_night (1-50). Both fields PATCH /api/autonomous/config on change with 500ms debounce.
+
+    SECTION 3 -- Decision Log (separate white card below):
+    Header: 'Autonomous Decision Log'. Toggle button: 'Show All' vs 'Requires Review Only'.
+    Fetch from GET /api/autonomous/decisions (add ?requiresReview=true when toggled).
+    Table: columns Agent ID, Decision Type, Reasoning (truncated 80 chars with title tooltip), Confidence (colored badge), Time (relative), Status (green 'Reviewed' badge or amber 'Pending Review' badge).
+    For Pending Review rows: show Approve (background #10B981 white text 11px) and Reject (background #EF4444 white text 11px) buttons. On click: PATCH /api/autonomous/decisions. Optimistic remove from list on action.
+    Show 50 per page. Load More button calls with cursor parameter.
+
+    Run pnpm tsc --noEmit. Run pnpm build, fix all errors.
+    Commit: git add -A; git commit -m 'feat: autonomous settings panel with toggles, threshold slider, decision log UI'; git push.
+
+- id: ui-002
+  name: Dashboard activity feed and autonomous draft review page
+  prompt: |
+    Read src/app/(dashboard)/dashboard/page.tsx in full.
+    Read src/lib/agents/draft-generation-agent.ts in full.
+    Read src/app/(dashboard)/draft-generator/page.tsx for layout patterns.
+
+    CRITICAL: Inline style={{}} only. Hardcoded hex values. Canvas #D6E4F0.
+
+    CHANGE 1 -- Add autonomous activity panel to dashboard:
+    In the server component DashboardPage, add one more query to the existing Promise.all:
+    supabase.from('agent_decisions').select('id, agent_id, decision_type, reasoning, confidence_score, action_taken, created_at').eq('org_id', orgId).gte('created_at', new Date(Date.now() - 24*60*60*1000).toISOString()).order('created_at', { ascending: false }).limit(8)
+
+    After the funding summary row, add a new full-width section:
+    White card, border-radius 12px, box-shadow 0 2px 8px rgba(0,0,0,0.08), padding 24px.
+    Header row: 'AI Working For You -- Last 24 Hours' 14px bold #1A2B3C. If decisions.length > 0: pulsing green dot (8px circle, animation pulse 2s infinite).
+    If no decisions: 'No autonomous activity yet. Enable agents in Settings > Agents to activate your AI pipeline.' 13px #6B7280, text-align center, padding 32px 0.
+    If decisions exist: timeline list. Each item: display flex, gap 12px, padding 10px 0, border-bottom 1px solid #F3F4F6.
+      Left dot colored by agent_id: 'ag-17'=#06B6D4, 'ag-15'=#0EA5E9, 'ag-05'=#8B5CF6, 'ag-18'=#F59E0B, 'ag-19'=#10B981, default=#6B7280.
+      Middle: decision_type in bold 13px #1A2B3C + reasoning truncated 80 chars 12px #6B7280.
+      Right: confidence_score badge (green >=70, amber 50-69, red <50) + timeAgo 11px #9CA3AF.
+
+    CHANGE 2 -- Create autonomous draft review page:
+    Create src/app/(dashboard)/draft-generator/autonomous/page.tsx as a server component.
+    Query: applications WHERE organization_id=orgId AND auto_generated=true AND pending_review=true ORDER BY created_at DESC.
+    Join: opportunities (name, funder_id), opportunity_probability_scores (overall_score).
+
+    Header: 'AI-Generated Drafts Awaiting Review' 22px bold #1A2B3C.
+    Subtext: 'These grant applications were automatically created by your AI pipeline. Review each draft before it enters your active pipeline.' 13px #6B7280.
+
+    If empty: centered empty state: 'No autonomous drafts pending review.' + 'Your AI pipeline will generate drafts overnight for high-probability opportunities once you enable agents in Settings.' Link to /settings/agents.
+
+    For each draft: white card, border-radius 12px, box-shadow, padding 24px, marginBottom 16px.
+      Top row: opportunity name bold 16px #1A2B3C | probability score badge right (green >=70, amber 50-69, red <50).
+      Row 2: confidence score badge (same colors) | 'Auto-generated ' + timeAgo + ' by Benavora AI' 12px #6B7280.
+      Row 3: draft preview -- first 300 chars of draft_content, 14px #374151, font-style italic, background #F9FAFB, padding 12px, border-radius 8px.
+      Action row: 'Review & Edit' link button to /draft-generator/[id] (background #1A2B3C white text) | 'Dismiss' button (background #F3F4F6 #374151 text, calls PATCH /api/applications/[id] to set pending_review=false).
+
+    Add nav link: find the sidebar nav config (search for 'draft-generator' in nav components). Add child link: 'AI Drafts Ready' href='/draft-generator/autonomous'. Show count badge if pending_review count > 0 (add to server-side data fetch).
+
+    Run pnpm tsc --noEmit. Run pnpm build, fix all errors.
+    Commit: git add -A; git commit -m 'feat: dashboard 24h activity feed + autonomous draft review page /draft-generator/autonomous'; git push.
+
+# ============================================================
+# CATEGORY 5 -- GOVERNANCE + VISION ARCHITECTURE (6 prompts)
+# ============================================================
+
+- id: gov-001
+  name: Rewrite AGENTS_v2.md with full autonomous mode specifications
+  prompt: |
+    Read AGENTS_v2.md (or AGENTS.md if v2 does not exist) in full.
+    Read src/lib/agents/autonomous-base.ts in full.
+    Read all agent files in src/lib/agents/ directory.
+
+    Rewrite AGENTS_v2.md completely. The file must contain:
+
+    1. AUTONOMOUS_HARD_LIMITS block prominently at the top.
+    2. Master table: columns Agent ID, Name, Type, Autonomous Status (ENABLED/PLANNED/NOT_APPLICABLE), Trigger, Chains To.
+    3. For each of the 30 agents (AG-01 through AG-30), a full specification block including:
+       - Purpose, Type, Model, Tokens, Tier Gate (same as before)
+       - NEW: Autonomous Mode section with:
+         - Status: ENABLED | PLANNED | NOT_APPLICABLE
+         - Trigger Type: schedule | event | chain | manual-only
+         - Trigger Condition: exact condition
+         - Decision Log: what gets written to agent_decisions
+         - Chain Output: what downstream agent gets queued (or 'none')
+         - Hard Limits: what this agent is explicitly prohibited from doing
+         - Human Review Required: yes/no and conditions
+
+    Save as AGENTS_v2.md in repo root.
+    Commit: git add AGENTS_v2.md; git commit -m 'docs: AGENTS_v2.md complete rewrite -- all 30 agents with autonomous mode specs'; git push.
+
+- id: gov-002
+  name: Update BEHAVIORAL_CONTRACTS.md with autonomous contracts
+  prompt: |
+    Read BEHAVIORAL_CONTRACTS.md in full.
+    Read src/lib/agents/autonomous-base.ts (specifically AUTONOMOUS_HARD_LIMITS).
+
+    Append the following new sections to BEHAVIORAL_CONTRACTS.md (do not modify existing sections 1-15):
+
+    ## 16. Autonomous Agent Contracts
+
+    ### Hard Limits (absolute -- no exceptions, no operator overrides)
+    - Autonomous agents NEVER submit applications or forms to external funders without explicit human approval
+    - Autonomous agents NEVER send emails to external parties without human approval
+    - Autonomous agents NEVER delete user data of any kind
+    - Autonomous agents NEVER modify governance files
+    - Autonomous agents NEVER exceed org max_auto_drafts_per_night limit
+    - Autonomous agents NEVER access data outside org scope (organization_id isolation enforced equally)
+    - All of the above are enforced as TypeScript constants in AUTONOMOUS_HARD_LIMITS and as behavioral patterns in every agent class
+
+    ### Decision Logging Requirements
+    - Every autonomous decision MUST create an agent_decisions record BEFORE executing the action
+    - decision_type, reasoning, confidence_score, and action_taken are required on every record
+    - Any action with requiredHumanReview=true creates a blocking notification immediately
+    - Decisions with confidence_score < 60 automatically set requiredHumanReview=true
+
+    ### Chain Contract
+    - Agent chaining is one-directional: AG-17 -> AG-15 -> AG-05 (never circular)
+    - A chained agent only fires if the upstream agent completed successfully
+    - Maximum chain depth: 3 (discovery -> scoring -> drafting)
+    - Chain payload always includes the triggering agent's run_id for full traceability
+
+    ### Human Review Gates
+    - All auto-generated drafts: auto_generated=true, pending_review=true
+    - A pending_review=true application cannot advance past 'drafting' stage (API enforces this)
+    - Only owner or admin role can clear pending_review
+    - Clearing pending_review creates a pipeline_history record: 'Autonomous draft approved by {user}'
+
+    ### Notification Contracts
+    - Morning digest fires at 7:00 AM CST regardless of pipeline activity
+    - CRITICAL reputation alerts fire immediately (not batched)
+    - Maximum 1 digest notification per org per day
+    - All autonomous notifications link to the relevant review page
+
+    ## 17. Autonomous Configuration Contracts
+    - org_autonomous_config created with all flags=false on org creation (opt-in default)
+    - auto_draft_threshold below 50 is blocked by API validation
+    - Disabling auto_research_enabled also disables auto_score_enabled and auto_draft_enabled
+    - Only owner role can modify autonomous config
+    - Config changes take effect at the next nightly pipeline run
+
+    Save updated file.
+    Commit: git add BEHAVIORAL_CONTRACTS.md; git commit -m 'docs: BEHAVIORAL_CONTRACTS.md sections 16-17 autonomous agent contracts'; git push.
+
+- id: gov-003
+  name: Update SCHEMA_REGISTRY_v2.md and WORKER_ARCHITECTURE_v2.md
+  prompt: |
+    Read SCHEMA_REGISTRY_v2.md in full.
+    Read WORKER_ARCHITECTURE_v2.md in full.
+
+    UPDATE SCHEMA_REGISTRY_v2.md:
+    Add full column specifications for all new tables: autonomous_triggers, agent_queue, agent_decisions, org_autonomous_config.
+    Update agent_runs entry: add trigger_source, next_action, confidence_score, items_queued, chained_from_run_id columns.
+    Update applications entry: add auto_generated, pending_review, draft_source, budget_data, compliance_check_result, fit_analysis columns.
+    Update organizations entry: add analytics jsonb column.
+
+    UPDATE WORKER_ARCHITECTURE_v2.md:
+    Add new Section 11: Autonomous Pipeline Architecture.
+    Document the Autonomous Orchestrator (worker/autonomous-orchestrator.ts): purpose, per-org execution order, failure isolation, timing.
+    Document the Agent Queue Processor: polling interval, priority ordering, retry logic, chain handling.
+    Update Section 4 (Scheduler) nightly schedule:
+      2:00 AM -- Autonomous Orchestrator (all enabled agents, per-org pipeline, all active orgs)
+      7:00 AM -- Autonomous Digest Agent (morning summary)
+    Add chain diagram: AG-17 -> agent_queue -> AG-15 -> agent_queue -> AG-05 -> pending_review notification -> dashboard.
+
+    Save both files.
+    Commit: git add SCHEMA_REGISTRY_v2.md WORKER_ARCHITECTURE_v2.md; git commit -m 'docs: schema registry + worker architecture -- autonomous infrastructure documented'; git push.
+
+- id: gov-004
+  name: Create AUTONOMOUS_PLATFORM_VISION.md
+  prompt: |
+    Read BLUEPRINT_v2.md in full.
+    Read PLATFORM_VISION_ARCHITECTURE.md in full.
+    Read FEATURE_REGISTRY_v2.md in full.
+
+    Create AUTONOMOUS_PLATFORM_VISION.md in the repo root.
+
+    # BENAVORA -- Autonomous Platform Vision
+    ## Version: 1.0 | Date: July 19, 2026 | Status: POST-LAUNCH ROADMAP
+
+    ## The Strategic Thesis
+    Today's fundraising platforms automate tasks. The next generation automates outcomes. Benavora's trajectory: from AI-assisted grant management (Phase 1) to autonomous fundraising operating system (Phase 5). The nonprofit simply approves major decisions.
+
+    ## The Four Moats (Why This Is Defensible)
+    1. Proprietary fundraising knowledge graph: learns from millions of interactions -- language, budget structure, narrative, keywords, timing. Cannot be replicated without the data history.
+    2. Predictive intelligence: identifies funding before it becomes obvious. Monitors signals others ignore.
+    3. Autonomous orchestration: not isolated tools but coordinated agents executing the entire funding lifecycle.
+    4. Cross-organization network effects: each customer's anonymized successes improve recommendations for all others. Value grows non-linearly with user count.
+
+    ## Phase 1 -- Foundation (Current: Launch through Month 6)
+    What is operational: autonomous discovery pipeline (AG-17->AG-15->AG-05), 18 autonomous agents, decision logging, morning digest, settings panel, draft review interface. Metrics defining Phase 1 completion: 50 paying orgs, first 1,000 autonomous drafts generated, NPS > 50.
+
+    ## Phase 2 -- Intelligence Amplification (Months 7-18)
+    For each feature below include: description, FORGE queue blueprint (3-5 sentences on prompts needed), schema additions required, agent(s) involved.
+
+    Features:
+    - Fundability Intelligence Score: probability score with explanation of specific deficiencies and auto-fix where possible
+    - AI Donor Intent Engine: monitor press releases, CSR, ESG reports, SEC filings, hiring trends, facility expansions, disaster declarations, foundation board appointments. Predict giving intent 30-90 days before announcement.
+    - Twin-Powered Draft Generation: every draft reads Digital Twin completeness first, fills gaps from KB, generates with full organizational context
+    - AutoApply Full Autonomous Mode: overnight queue, 400+ corporate portal submissions, zero human touch for standard forms
+    - Predictive National Opportunity Forecasting: congressional appropriations, FEMA spending, HUD, USDA, state budgets, corporate profits, industry cycles
+
+    ## Phase 3 -- Relationship Intelligence (Months 19-30)
+    - Corporate Relationship Graph: board overlaps, alumni networks, church/university connections, past employers, family foundations, shared board members. Surface warm introduction pathways.
+    - Philanthropic Intelligence Graph: full build-out, cross-org funder behavior patterns, giving cycle intelligence
+    - Autonomous Partnership Discovery: identify coalition grant opportunities, complementary missions, shared application potential
+    - Donor Personalization Engine: website and communications adapt by visitor type automatically (corporate exec vs church donor vs family foundation vs government reviewer)
+    - Community Need Prediction: census data, housing prices, employment trends, eviction filings, weather patterns, school enrollment, migration data
+
+    ## Phase 4 -- Autonomous Operations (Months 31-48)
+    - Global Learning Network: every successful grant (anonymized) teaches platform language, budget structure, narrative patterns, winning keywords. Proprietary moat competitors cannot replicate.
+    - Predictive Fundraising Simulator: what-if modeling -- increase board members, hire staff, expand geography, launch program. AI projects revenue, probability, cost, ROI, staffing needs across scenarios.
+    - Autonomous Continuous Improvement Engine: nightly self-assessment. What worked, what failed, which agents underperformed, which prompts improved. Proposes enhancements, validates in staging, A/B tests, presents high-confidence improvements for approval before deployment.
+    - Autonomous Multi-Agent Negotiation: AI-to-AI communication with corporate giving portals for documentation alternatives and requirement clarification.
+    - Community Resource Graph (Faith Foundation model): map donors, housing providers, churches, government agencies, volunteers, contractors, property owners, employers, transportation. Shortest path from client need to resource combination.
+    - ROI Optimization Engine: track every submission variable -- prompt version, attachment type, submission day, wording choices, contact person. Continuous optimization loop.
+
+    ## Phase 5 -- Network Effects (Month 49+)
+    - Cross-organization anonymous benchmarking
+    - Industry-wide success pattern detection by funder, category, geography
+    - Predictive national funding flow modeling
+    - AI Strategic Advisor: proactive unsolicited recommendations before the user asks. 'Apply for these 12 grants next month.' 'Postpone this application.' 'This foundation funded exactly your profile 3 times in the last 2 years.'
+
+    ## FORGE Queue Blueprints
+    For each Phase 2-5 feature: describe the specific FORGE queue prompts (schema migration, agent, API route, UI) needed to execute the build in a future session.
+
+    ## Competitive Moat Analysis
+    For each of the four moats: current state, what competitor would need to replicate, estimated time to replicate, why the gap widens over time.
+
+    Save as AUTONOMOUS_PLATFORM_VISION.md.
+    Commit: git add AUTONOMOUS_PLATFORM_VISION.md; git commit -m 'docs: AUTONOMOUS_PLATFORM_VISION.md -- post-launch roadmap Phases 1-5 with FORGE blueprints'; git push.
+
+- id: gov-005
+  name: Update FEATURE_REGISTRY_v2.md with autonomous features 187-226
+  prompt: |
+    Read FEATURE_REGISTRY_v2.md in full.
+
+    Append a new section after all existing pillars:
+
+    ### Autonomous Agent Infrastructure
+    | # | Feature | Status | Notes |
+    |---|---|---|---|
+    | 187 | Autonomous Infrastructure Schema | BUILT | autonomous_triggers, agent_queue, agent_decisions, org_autonomous_config. Migration this session. |
+    | 188 | AutonomousAgent Base Class | BUILT | src/lib/agents/autonomous-base.ts. AUTONOMOUS_HARD_LIMITS. Decision logging. Chain support. |
+    | 189 | Autonomous Orchestrator (Railway) | BUILT | worker/autonomous-orchestrator.ts. 2AM nightly per-org pipeline. |
+    | 190 | Agent Queue Processor | BUILT | Continuous poll. Priority ordering. Retry logic with max_retries. |
+    | 191 | Autonomous Config API | BUILT | GET/PATCH /api/autonomous/config |
+    | 192 | Decision Log API | BUILT | GET/PATCH /api/autonomous/decisions |
+    | 193 | Queue Management API | BUILT | GET/DELETE /api/autonomous/queue |
+    | 194 | Manual Trigger API | BUILT | POST /api/autonomous/trigger |
+
+    ### Autonomous Agents (18 agents upgraded)
+    | # | Feature | Status | Notes |
+    |---|---|---|---|
+    | 195 | AG-17 Autonomous Discovery | BUILT | Nightly. Decision log. Chains to AG-15. |
+    | 196 | AG-15 Autonomous Probability Scoring | BUILT | Post-discovery or scheduled. Threshold gate chains to AG-05. |
+    | 197 | AG-05 Autonomous Draft Generation | BUILT | Auto-drafts above threshold. pending_review=true. Never submits. |
+    | 198 | Autonomous Morning Digest | BUILT | 7AM AI briefing of overnight activity. |
+    | 199 | AG-18 Autonomous Reputation Intelligence | BUILT | Severity classification. Instant CRITICAL alerts. Auto memory entries. |
+    | 200 | AG-19 Autonomous Relationship Builder | BUILT | Nightly scoring + momentum. AI recommendations when score >= 40. |
+    | 201 | AG-25 Autonomous Deadline Prediction | BUILT | Pattern detection. Auto-creates projected opportunities at 90-day horizon. |
+    | 202 | AG-28 Autonomous Follow-Up Generator | BUILT | Event-driven on stage transitions. Never sends directly. |
+    | 203 | AG-02 Autonomous Eligibility Scoring | BUILT | Auto-scores new discoveries. Chains qualified opps to AG-15. |
+    | 204 | AG-03 Autonomous Deadline Extraction | BUILT | Creates deadline records for all new opportunities. |
+    | 205 | AG-07 Autonomous Compliance Check | BUILT | Event-driven on ready_for_review. Blocks non-compliant applications. |
+    | 206 | AG-04 Autonomous Fit Analysis | BUILT | Fires at eligibility >= 70. Creates discovered-stage application. |
+    | 207 | AG-06 Autonomous Budget Builder | BUILT | Event-driven on drafting stage. Generates budget for human review. |
+    | 208 | AG-08 Renewal Tracker | BUILT | Monthly. Auto-creates renewal opportunity records for recurring grants. |
+    | 209 | AG-09 Outcome Analyzer | BUILT | Weekly + event-driven. Updates analytics and proven narrative status. |
+    | 210 | AG-10 Document Expiry Monitor | BUILT | Nightly. 30-day expiry notifications. |
+    | 211 | AG-11 Knowledge Gap Detector | BUILT | Weekly. Identifies missing KB categories with specific fill-in prompts. |
+    | 212 | AG-12 Search Profile Optimizer | BUILT | Monthly. Performance analysis and keyword improvement suggestions. |
+
+    ### Autonomous UI
+    | # | Feature | Status | Notes |
+    |---|---|---|---|
+    | 213 | Autonomous Settings Panel | BUILT | /settings/agents -- per-org toggle controls + threshold slider. |
+    | 214 | Decision Log UI | BUILT | Timeline view, approve/reject interface, pagination. |
+    | 215 | Dashboard 24h Activity Feed | BUILT | Live autonomous activity panel on main dashboard. |
+    | 216 | Autonomous Draft Review Page | BUILT | /draft-generator/autonomous -- pending review queue. |
+
+    ### Post-Launch Vision (Phases 2-5)
+    | # | Feature | Status | Notes |
+    |---|---|---|---|
+    | 217 | Fundability Intelligence Score | PLANNED | Phase 2. AUTONOMOUS_PLATFORM_VISION.md. |
+    | 218 | AI Donor Intent Engine | PLANNED | Phase 2. Corporate signal monitoring. |
+    | 219 | AutoApply Full Autonomous Mode | PLANNED | Phase 2. 400+ overnight submissions. |
+    | 220 | Corporate Relationship Graph | PLANNED | Phase 3. Warm introduction pathways. |
+    | 221 | Donor Personalization Engine | PLANNED | Phase 3. Adaptive content by visitor type. |
+    | 222 | Community Need Prediction | PLANNED | Phase 3. Census + housing + employment signals. |
+    | 223 | Global Learning Network | PLANNED | Phase 4. Cross-org anonymized pattern learning. |
+    | 224 | Predictive Fundraising Simulator | PLANNED | Phase 4. What-if modeling. |
+    | 225 | Autonomous Continuous Improvement Engine | PLANNED | Phase 4. Nightly self-optimization. |
+    | 226 | Community Resource Graph | PLANNED | Phase 4. Need-to-resource pathfinding. |
+    | 227 | ROI Optimization Engine | PLANNED | Phase 5. Submission variable optimization. |
+    | 228 | AI Strategic Advisor | PLANNED | Phase 5. Proactive unsolicited recommendations. |
+
+    Save file.
+    Commit: git add FEATURE_REGISTRY_v2.md; git commit -m 'docs: FEATURE_REGISTRY_v2.md features 187-228 -- autonomous infrastructure, agents, UI, and post-launch vision'; git push.
+
+- id: gov-006
+  name: Update STATE_OF_THE_BUILD and SESSION_STATE then deploy
+  prompt: |
+    Read STATE_OF_THE_BUILD.md in full.
+    Read SESSION_STATE.md in full.
+
+    UPDATE STATE_OF_THE_BUILD.md -- append this section:
+
+    ## Autonomous Agent Build Session -- July 18-19, 2026
+
+    ### Infrastructure
+    Schema: autonomous_triggers, agent_queue, agent_decisions, org_autonomous_config tables. agent_runs extended with trigger_source, next_action, confidence_score, items_queued, chained_from_run_id. applications extended with auto_generated, pending_review, draft_source, budget_data, compliance_check_result, fit_analysis.
+    Base class: src/lib/agents/autonomous-base.ts with AUTONOMOUS_HARD_LIMITS and full decision logging.
+    Orchestrator: worker/autonomous-orchestrator.ts -- nightly 2AM per-org pipeline.
+    Queue processor: continuous poll with priority ordering and retry logic.
+    API routes: /api/autonomous/config, /decisions, /queue, /trigger, /followup-trigger.
+
+    ### Agents Upgraded to Autonomous (18 total)
+    AG-02, AG-03, AG-04, AG-05, AG-06, AG-07, AG-08, AG-09, AG-10, AG-11, AG-12, AG-15, AG-17, AG-18, AG-19, AG-25, AG-28, plus Autonomous Digest Agent.
+
+    ### Core Chain
+    AG-17 (Discovery) -> agent_queue -> AG-15 (Probability, threshold gate) -> agent_queue -> AG-05 (Draft, pending_review=true) -> notification -> dashboard.
+
+    ### Hard Limits Enforced Permanently
+    NEVER_SUBMIT_EXTERNALLY. NEVER_SEND_EMAIL_WITHOUT_APPROVAL. NEVER_DELETE_USER_DATA. NEVER_MODIFY_GOVERNANCE_FILES.
+
+    ### UI
+    Autonomous Settings Panel (/settings/agents), Decision Log (same page), 24h Activity Feed (dashboard), Draft Review Page (/draft-generator/autonomous).
+
+    ### Governance Created/Updated
+    AGENTS_v2.md (complete rewrite with autonomous specs), BEHAVIORAL_CONTRACTS.md (sections 16-17), SCHEMA_REGISTRY_v2.md (all new tables), WORKER_ARCHITECTURE_v2.md (section 11), FEATURE_REGISTRY_v2.md (features 187-228), AUTONOMOUS_PLATFORM_VISION.md (created -- Phases 1-5 roadmap with FORGE blueprints).
+
+    ### Next Session Priorities
+    1. Enable auto_research_enabled + auto_score_enabled for Faith Foundation org and monitor first autonomous run
+    2. Verify agent_decisions table populates correctly
+    3. Command Center UI redesign (color scheme + platform-owner-scoped data)
+    4. Run pnpm score:eligibility
+    5. Run pnpm acquire:prospects
+    6. Faith Foundation org dedup in Supabase (still pending)
+
+    UPDATE SESSION_STATE.md: Last session = July 18-19 2026. Build = autonomous agent infrastructure complete. 18 agents upgraded. Core chain operational. Next = first live test run with Faith Foundation, then Command Center redesign.
+
+    Run pnpm build, fix all errors.
+    git add -A; git commit -m 'chore: STATE_OF_THE_BUILD + SESSION_STATE updated -- autonomous agent session complete'; git push.
+    npx vercel deploy --prod.
+    Report the final production URL.

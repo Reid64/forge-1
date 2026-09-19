@@ -1,0 +1,256 @@
+project: benavora
+github_repo: Reid64/benavora
+supabase_project_ref: vbjplpquqxxfbpazyalt
+vercel_project_name: benavora
+domain: benavora.com
+
+governance:
+  - BLUEPRINT_v2.md
+  - SCHEMA_REGISTRY_v2.md
+  - BEHAVIORAL_CONTRACTS.md
+  - STATE_OF_THE_BUILD_2026-09-01.md
+  - STANDING_DIRECTIVES.md
+
+settings:
+  max_retries_per_prompt: 3
+  build_model: claude-sonnet-4-6-20250514
+  review_model: claude-sonnet-4-6-20250514
+  report_model: claude-haiku-4-5-20251001
+  permission_mode: acceptEdits
+  allowed_tools: "*"
+
+prompts:
+
+  - id: p3-001-fit-analysis-agent-wire
+    phase: wiring
+    description: "Wire fit-analysis-agent into opportunity qualification pipeline"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      ORPHANED AGENT: fit-analysis-agent.ts exists but has no route, no trigger, no integration. Agent is never called.
+      
+      FIX SCOPE:
+      1. Read src/lib/agents/fit-analysis-agent.ts in full.
+      2. Understand what it does: analyzes opportunity-to-organization fit on mission, capacity, focus areas, geographic match.
+      3. Create route POST /api/agents/fit-analysis accepting { opportunity_id, organization_id }.
+      4. Route calls FitAnalysisAgent and stores result in opportunity_fit_scores table.
+      5. opportunity_fit_scores columns: id, opportunity_id, organization_id, mission_fit (0-100), capacity_fit (0-100), focus_fit (0-100), geographic_fit (0-100), overall_fit_score (0-100), analysis_json, created_at.
+      6. Wire into qualification flow: after opportunity discovery, call fit-analysis-agent before other agents process it.
+      7. Test: Create test opportunity. Run fit analysis. Verify scores in opportunity_fit_scores table.
+      8. Commit: git add -A; git commit -m "feat(agents): wire fit-analysis-agent into opportunity qualification pipeline"
+      
+      VERIFICATION:
+      - Route /api/agents/fit-analysis exists
+      - opportunity_fit_scores table has proper schema
+      - Agent execution stores scores
+      - Test opportunity analyzed with all 4 fit dimensions scored
+      - RLS policy applied (org_id isolation)
+      
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: stop
+    depends_on: []
+
+  - id: p3-002-deadline-extraction-agent-wire
+    phase: wiring
+    description: "Wire deadline-extraction-agent into opportunity processing"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      ORPHANED AGENT: deadline-extraction-agent.ts exists but never invoked. Opportunity deadlines not extracted from opportunity descriptions or funder websites.
+      
+      FIX SCOPE:
+      1. Read src/lib/agents/deadline-extraction-agent.ts in full.
+      2. Understand: parses opportunity text/HTML to find application deadlines, report deadlines, renewal dates.
+      3. Create route POST /api/agents/deadline-extraction accepting { opportunity_id, opportunity_text? }.
+      4. Route calls DeadlineExtractionAgent and updates opportunity table: deadline_date, deadline_type, days_remaining, is_rolling_deadline.
+      5. Wire into discovery webhook: when opportunity imported, call deadline-extraction-agent to populate deadline fields.
+      6. Handle multiple deadlines: if multiple dates found, create separate entries in opportunity_deadlines junction table.
+      7. Test: Pass opportunity with text containing "Applications due March 15, 2027" and "Reporting deadline June 30, 2027". Verify both deadlines extracted.
+      8. Commit: git add -A; git commit -m "feat(agents): wire deadline-extraction-agent into opportunity discovery flow"
+      
+      VERIFICATION:
+      - Route /api/agents/deadline-extraction exists
+      - Agent extracts multiple deadline types
+      - opportunity_deadlines table populated
+      - days_remaining calculated correctly
+      - Test verified with known deadline text
+      
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: stop
+    depends_on: []
+
+  - id: p3-003-compliance-check-agent-wire
+    phase: wiring
+    description: "Wire compliance-check-agent into pre-submission audit"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      ORPHANED AGENT: compliance-check-agent.ts exists but never called. No compliance checks before submission. Orgs could submit ineligible applications.
+      
+      FIX SCOPE:
+      1. Read src/lib/agents/compliance-check-agent.ts in full.
+      2. Understand: validates org against funder requirements (501c3 status, EIN in good standing, no debarment, geographic eligibility, DUNS number if required).
+      3. Create route POST /api/agents/compliance-check accepting { organization_id, opportunity_id }.
+      4. Route calls ComplianceCheckAgent and returns: { is_compliant: boolean, checks: [{check_name, passed, requirement, org_status}], blockers: [], warnings: [] }.
+      5. Wire into FormFillerAgent: before submission, run compliance check. If is_compliant=false and blockers exist, prevent submission and return errors to user.
+      6. Compliance check items: 501c3 status active, EIN valid, no SAM exclusion, geographic fit, required registrations (DUNS, etc).
+      7. Test: Check org against opportunity with geographic restriction. Verify geographic_fit check passes/fails correctly.
+      8. Commit: git add -A; git commit -m "feat(agents): wire compliance-check-agent into pre-submission audit"
+      
+      VERIFICATION:
+      - Route /api/agents/compliance-check functional
+      - Checks all 5+ compliance dimensions
+      - Blocker detection works
+      - FormFillerAgent blocked on non-compliant org
+      - Test verified with real org/opportunity pair
+      
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: stop
+    depends_on: []
+
+  - id: p3-004-draft-generation-agent-wire
+    phase: wiring
+    description: "Wire draft-generation-agent into narrative creation pipeline"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      ORPHANED AGENT: draft-generation-agent.ts exists but never called from UI or API. Users cannot generate drafts through automated pipeline.
+      
+      FIX SCOPE:
+      1. Read src/lib/agents/draft-generation-agent.ts in full.
+      2. Understand: generates grant narratives using org KB, funder intelligence, opportunity requirements.
+      3. Create route POST /api/agents/draft-generation accepting { opportunity_id, organization_id, template_type: 'grant_narrative'|'donation_request_letter'|'budget_narrative'|'impact_statement'|'letter_of_inquiry'|'full_proposal' }.
+      4. Route calls DraftGenerationAgent and stores result in draft_versions table.
+      5. draft_versions columns: id, opportunity_id, organization_id, template_type, draft_content, word_count, tone, status (draft/ready_for_review/approved), version_number, created_by, created_at.
+      6. UI: Create /drafts page. User selects opportunity → template type → AI generates draft → user edits → saves version.
+      7. Versioning: each save creates new draft_version row. User can view history, revert to prior version.
+      8. Test: Generate grant narrative for test org+opportunity. Verify draft stored with correct word_count and template_type.
+      9. Commit: git add -A; git commit -m "feat(agents): wire draft-generation-agent into narrative creation pipeline"
+      
+      VERIFICATION:
+      - Route /api/agents/draft-generation functional
+      - draft_versions table schema correct
+      - Draft content generated and stored
+      - Versioning works
+      - /drafts UI renders drafts and editor
+      - Test draft generated with real data
+      
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: stop
+    depends_on: []
+
+  - id: p3-005-volunteer-coordination-agent-new
+    phase: wiring
+    description: "Build and wire Volunteer Coordination Agent (new, not yet implemented)"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      NEW AGENT: Volunteer Coordination Agent does not exist. Needed to match volunteers to grant opportunities, track volunteer hours, generate volunteer impact reports.
+      
+      BUILD SCOPE:
+      1. Create src/lib/agents/volunteer-coordination-agent.ts extending BaseAgent.
+      2. Agent responsibilities:
+         - Match volunteers (by skills, availability, interests) to grant opportunities that need volunteer support
+         - Track volunteer hours per opportunity per volunteer
+         - Generate volunteer impact narratives for grant proposals (e.g., "$X worth of volunteer labor contributed")
+         - Aggregate volunteer hours per organization for annual reports
+      3. Create volunteers table: id, organization_id, name, email, skills (text[]), availability, interests, hours_available_monthly
+      4. Create volunteer_hours table: id, volunteer_id, opportunity_id, hours_logged, date_logged, description
+      5. Agent inputs: organization_id, opportunity_id. Agent outputs: matched_volunteers (ranked by fit), estimated_hours_available, impact_narrative.
+      6. Create route POST /api/agents/volunteer-coordination accepting { organization_id, opportunity_id }.
+      7. Test: Create 3 test volunteers with different skills. Create opportunity needing volunteers. Run agent. Verify volunteers matched and ranked.
+      8. Commit: git add -A; git commit -m "feat(agents): build and wire volunteer-coordination-agent for opportunity matching"
+      
+      VERIFICATION:
+      - Agent file created with BaseAgent extension
+      - volunteers and volunteer_hours tables created
+      - Agent matches volunteers by skill/availability
+      - Route /api/agents/volunteer-coordination functional
+      - Test matched correct volunteers to test opportunity
+      - RLS policies applied
+      
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: stop
+    depends_on: []
+
+  - id: p3-006-legal-intelligence-agent-new
+    phase: wiring
+    description: "Build and wire Legal Intelligence Agent (new, not yet implemented)"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      NEW AGENT: Legal Intelligence Agent does not exist. Needed to analyze funder legal requirements, legal/compliance barriers, liability/insurance requirements in grant opportunities.
+      
+      BUILD SCOPE:
+      1. Create src/lib/agents/legal-intelligence-agent.ts extending BaseAgent.
+      2. Agent responsibilities:
+         - Parse opportunity legal requirements (liability insurance, indemnification clauses, audit requirements)
+         - Flag legal barriers (requirements org may not meet: insurance coverage, legal structure, nonprofit status)
+         - Generate legal compliance checklist for application process
+         - Identify insurance/legal gaps and recommend solutions
+      3. Agent inputs: opportunity_id, organization_id. Outputs: legal_requirements (list), legal_barriers (list with severity), compliance_checklist (list), risk_flags (list).
+      4. Create route POST /api/agents/legal-intelligence accepting { opportunity_id, organization_id }.
+      5. Store analysis in legal_intelligence_findings table: id, opportunity_id, organization_id, requirements (jsonb), barriers (jsonb), checklist (jsonb), created_at.
+      6. Legal intelligence integrates into dashboard: user sees legal flags before applying.
+      7. Test: Pass opportunity with "Require $2M liability insurance" to org with "$1M coverage". Verify barrier flagged.
+      8. Commit: git add -A; git commit -m "feat(agents): build and wire legal-intelligence-agent for compliance analysis"
+      
+      VERIFICATION:
+      - Agent file created with BaseAgent extension
+      - legal_intelligence_findings table created
+      - Agent parses legal requirements from opportunity
+      - Barriers flagged with severity levels
+      - Compliance checklist generated
+      - Test flagged insurance gap correctly
+      - Route functional
+      
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: stop
+    depends_on: []
+
+  - id: p3-verify-all-wiring
+    phase: verify
+    description: "Verify all 6 agents wired and integrated into workflows"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      VERIFICATION CHECKLIST:
+      1. Fit Analysis: Agent scores opportunity fit on 4 dimensions, scores stored in DB
+      2. Deadline Extraction: Agent extracts multiple deadline types from opportunity text
+      3. Compliance Check: Agent validates org eligibility, blocks submission if non-compliant
+      4. Draft Generation: Agent generates grant narrative, user can edit and version
+      5. Volunteer Coordination: Agent matches volunteers by skill, tracks hours
+      6. Legal Intelligence: Agent flags legal barriers and insurance gaps
+      7. All 6 routes functional: POST /api/agents/{agent-name}
+      8. All tables created with proper schema and RLS
+      9. Full test suite: pnpm test:unit passes
+      10. Deployment: npx vercel deploy --prod succeeds
+      
+      Update STATE_OF_THE_BUILD.md:
+      - Section: PHASE 3 WIRING
+      - List all 6 agents with "✅ VERIFIED AND OPERATIONAL" status
+      - Record gate results: 6/6 prompts passed
+      - Update "NEXT SESSION PRIORITIES" with Phase 4 scope
+      
+      Commit: git add -A; git commit -m "docs: Phase 3 agent wiring verified, all 6 agents operational and integrated"
+      
+    gates:
+      - type: compile
+      - type: file_exists
+        files: [STATE_OF_THE_BUILD.md]
+    max_retries: 2
+    on_fail: continue
+    depends_on:
+      - p3-006-legal-intelligence-agent-new

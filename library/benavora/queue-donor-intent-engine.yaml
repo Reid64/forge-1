@@ -1,0 +1,47 @@
+project: benavora
+governance:
+- BLUEPRINT_v2.md
+- SCHEMA_REGISTRY_v2.md
+- AGENTS_v2.md
+- AUTONOMOUS_PLATFORM_VISION.md
+- FEATURE_REGISTRY_v2.md
+- STATE_OF_THE_BUILD.md
+- STANDING_DIRECTIVES.md
+prompts:
+- id: donor-intent-001
+  name: Governance sync and donor intent schema plus signal monitor agent
+  prompt: |
+    First sync governance docs: $repo = 'C:\Users\manag\Documents\benavora'; $forge = 'C:\Users\manag\Documents\FORGE\projects\benavora'; Get-ChildItem $repo -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName (Join-Path $forge $_.Name) -Force }
+
+    Read SCHEMA_REGISTRY_v2.md in full. Read AUTONOMOUS_PLATFORM_VISION.md section on AI Donor Intent Engine. Read src/lib/agents/autonomous-base.ts in full.
+
+    Create migration src/supabase/migrations/[NEXT]_donor_intent_engine.sql:
+    CREATE TABLE IF NOT EXISTS corporate_intent_signals (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, company_name text NOT NULL, signal_type text NOT NULL CHECK (signal_type IN ('press_release','esg_report','sec_filing','hiring_trend','facility_expansion','disaster_declaration','foundation_appointment','csr_announcement','executive_interview')), signal_summary text NOT NULL, signal_url text, signal_date date, intent_score integer CHECK (intent_score BETWEEN 0 AND 100), geographic_relevance integer CHECK (geographic_relevance BETWEEN 0 AND 100), mission_alignment integer CHECK (mission_alignment BETWEEN 0 AND 100), recommended_action text, recommended_deadline date, created_at timestamptz DEFAULT now());
+    ALTER TABLE corporate_intent_signals ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY intent_signals_org ON corporate_intent_signals USING (org_id = (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+    CREATE INDEX idx_intent_signals_org ON corporate_intent_signals(org_id, intent_score DESC, created_at DESC);
+
+    Apply via Supabase SQL editor at https://supabase.com/dashboard/project/vbjplpquqxxfbpazyalt/sql/new if Management API unavailable.
+
+    Create src/lib/agents/donor-intent-monitor-agent.ts extending AutonomousAgent. AG-30. This agent monitors corporate signals that predict giving intent 30-90 days before announcements. For each active org: load org service area, NTEE category, corporate_prospects list. For each prospect: search for recent signals using web search via Claude tool_use with web_search_20250305 tool (search for company name + press release + CSR + giving + service area). Parse results, score intent (0-100) based on: geographic proximity to org service area, mission alignment, signal recency, signal type weight (facility_expansion=90, disaster_declaration=85, csr_announcement=80, esg_report=70, hiring_trend=60, press_release=50). If intent_score >= 60: insert corporate_intent_signals record with recommended_action and recommended_deadline (now + 48 hours for high scores, now + 7 days for medium). Log decision for each high-intent signal. This file must be at least 250 lines of real implementation.
+
+    Run pnpm tsc --noEmit, fix all errors.
+    Commit: git add -A; git commit -m 'feat: AG-30 donor intent monitor agent -- corporate signal detection and intent scoring'; git push.
+
+- id: donor-intent-002
+  name: Donor intent API routes and UI dashboard widget plus deploy
+  prompt: |
+    Read src/lib/agents/donor-intent-monitor-agent.ts in full.
+    Read src/app/(dashboard)/dashboard/page.tsx for inline style patterns.
+    CRITICAL: Inline style={{}} only. Hardcoded hex values. Canvas #D6E4F0.
+
+    Create src/app/api/intelligence/donor-intent/route.ts: GET returns corporate_intent_signals for org ordered by intent_score DESC, created_at DESC. Accepts ?minScore= filter. POST triggers DonorIntentMonitorAgent.
+
+    Create src/app/(dashboard)/intelligence/donor-intent/page.tsx: Header Donor Intent Intelligence H1. Stats row: Total Signals, High Intent (>=80), Action Required Today, Avg Intent Score. Signal cards (white, border-radius 12px, padding 20px): left accent bar colored by intent_score (red>=80, amber 60-79, gray<60). Company name bold, signal_type badge, intent_score large colored number, signal_summary text, geographic_relevance and mission_alignment small badges, recommended_action box amber background, recommended_deadline countdown badge red if within 48h. Run Analysis button calls POST route.
+
+    Add to intelligence nav: Donor Intent href /intelligence/donor-intent.
+    Update FEATURE_REGISTRY_v2.md feature 218 status to BUILT.
+    Run pnpm tsc --noEmit. Run pnpm build, fix all errors.
+    git add -A; git commit -m 'feat: donor intent engine UI and API routes'; git push.
+    npx vercel deploy --prod.
+    Report the production URL.

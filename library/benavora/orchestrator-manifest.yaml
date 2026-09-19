@@ -1,0 +1,83 @@
+name: "Benavora Audit Remediation - Phases 1-4 Complete"
+version: "1.0"
+project: "benavora"
+description: "Autonomous 24-7 FORGE execution: Phase 1 (scoring foundations), Phase 2 (partial completions), Phase 3 (agent wiring), Phase 4 (cleanup). Fully autonomous, handles retries, logs all output."
+
+execution_mode: "sequential"  # Run Phase 1 → Phase 2 → Phase 3 → Phase 4 in order
+parallelism: 1  # No parallel execution between phases (sequential only)
+max_total_runtime_hours: 36  # Estimated 8-12 hours per phase, 36 hours total cap
+error_behavior: "stop_on_critical"  # Stop entire run if any prompt fails 3x and is marked on_fail: stop
+
+phases:
+  - id: "phase-1"
+    name: "Scoring Foundations Repair"
+    queue_file: "queue-phase-1-scoring-foundations.yaml"
+    sequence: 1
+    description: "Fix 5 critical broken scoring agents blocking 30+ downstream features"
+    required: true
+    depends_on: []
+    estimated_duration_minutes: 480  # 8 hours
+    on_phase_complete: "log_and_continue"
+
+  - id: "phase-2"
+    name: "Partial Systems Completion"
+    queue_file: "queue-phase-2-partial-completions.yaml"
+    sequence: 2
+    description: "Complete 9 partial/incomplete systems (board packet, email intel, corporate DNA, etc)"
+    required: true
+    depends_on: ["phase-1"]
+    estimated_duration_minutes: 540  # 9 hours
+    on_phase_complete: "log_and_continue"
+
+  - id: "phase-3"
+    name: "Agent Wiring & New Agents"
+    queue_file: "queue-phase-3-phase1-wiring.yaml"
+    sequence: 3
+    description: "Wire 4 orphaned agents + build 2 new agents (volunteer coordination, legal intelligence)"
+    required: true
+    depends_on: ["phase-2"]
+    estimated_duration_minutes: 480  # 8 hours
+    on_phase_complete: "log_and_continue"
+
+  - id: "phase-4"
+    name: "Cleanup & Registry Completion"
+    queue_file: "queue-phase-4-cleanup.yaml"
+    sequence: 4
+    description: "Archive EA family, merge duplicates, relocate tests, complete 170+ agent registry"
+    required: true
+    depends_on: ["phase-3"]
+    estimated_duration_minutes: 360  # 6 hours
+    on_phase_complete: "generate_final_report"
+
+library:
+  location: "C:\Users\manag\Documents\benavora"  # Where all queue files live
+  queue_file_pattern: "queue-phase-*.yaml"
+  governance_sync: true  # Sync governance docs before each phase
+  backup_on_start: true  # Back up all queue files before run
+  log_location: "C:\Users\manag\Documents\benavora\logs"
+
+monitoring:
+  slack_webhook: null  # Optional: notify on phase completion
+  email_on_failure: false
+  dashboard_port: 7734  # FORGE dashboard at localhost:7734
+  verbose_logging: true
+
+reporting:
+  generate_phase_summaries: true
+  generate_final_report: true
+  report_location: "C:\Users\manag\Documents\benavora"
+  report_filename: "PHASES_1-4_ORCHESTRATOR_FINAL_REPORT.md"
+  include_metrics: true  # Prompts executed, gates passed, tokens used, duration
+
+gates:
+  require_all_pass: true  # All gates must pass for phase to succeed
+  retry_failed_prompts: 3  # Retry each failed prompt up to 3 times
+  allow_continue_on_non_critical: false  # Do not skip any prompts
+
+post_completion:
+  - action: "git_push"
+    message: "FORGE: Phases 1-4 audit remediation complete, all 44 prompts executed successfully"
+  - action: "generate_summary"
+    output: "PHASES_1-4_ORCHESTRATOR_FINAL_REPORT.md"
+  - action: "update_state_of_build"
+    file: "STATE_OF_THE_BUILD.md"

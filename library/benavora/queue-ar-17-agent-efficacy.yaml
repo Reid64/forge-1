@@ -1,0 +1,611 @@
+governance:
+- STATE_OF_THE_BUILD.md
+- SESSION_STATE.md
+- AGENTS_v2.md
+project: benavora
+settings:
+  max_retries_per_prompt: 2
+  permission_mode: acceptEdits
+prompts:
+- id: ar-17-1-quality-harness
+  name: Phase 17.1 Build the instrument before reading the dial
+  description: A reusable sampler that pulls real production output per agent and computes variance, nullity and grounding - no verdicts yet
+  phase: "17"
+  prompt: |
+    BENAVORA - PHASE 17.1 - THE OUTPUT QUALITY HARNESS
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Every phase to date has measured whether agents RUN. None has measured
+    whether what they produce is worth anything. An agent that completes,
+    writes a row, records its cost and produces a useless result passes every
+    gate this platform has.
+
+    This prompt builds the INSTRUMENT. It renders no verdicts. 17.2 through
+    17.4 use it to assess three agent families; assessing 90 agents by hand in
+    one prompt is how the last three audits produced numbers nobody could
+    reproduce.
+
+    BUILD scripts/audit/output-quality-sampler.mjs.
+
+    INPUT: an agent id or a family name, read from
+    test-evidence/AGENT_CENSUS.md and test-evidence/AGENT_INVOCATION_MAP.md.
+
+    IT MUST FIND, NOT ASSUME, WHERE OUTPUT LIVES. Different agents write to
+    different tables and different columns - some to a jsonb blob, some to a
+    numeric column, some into a narrative text field. Derive the output
+    location per agent from the code that writes it. Where you cannot
+    determine it, emit UNLOCATABLE for that agent with the reason; do not
+    guess a table.
+
+    PER AGENT IT MUST COMPUTE, from real rows only:
+      - n: how many output rows exist, and over what date range
+      - the 10 most recent outputs, verbatim and untruncated
+      - VARIANCE: distinct-value count and the full value distribution for any
+        numeric or enum output. This is the single most important measure in
+        this queue. A scoring agent whose output clusters on one value is not
+        scoring; it is defaulting.
+      - NULLITY: what fraction of output rows have null, empty-string,
+        empty-array or empty-object in the field that is supposed to carry the
+        answer
+      - BOILERPLATE: for text output, the longest shared prefix across
+        samples, and the proportion of samples sharing it. Every summary
+        opening with the same sentence is a template, not an analysis.
+      - GROUNDING: whether an evidence, sources, rationale or citations field
+        is present and non-empty alongside each score or claim
+      - STALENESS: newest output timestamp versus newest input-data timestamp
+
+    IT MUST NOT CALL CLAUDE and must not execute any agent. It reads
+    production and reports. Read-only. Assert that in the file header and
+    make every query a SELECT.
+
+    SELF-TEST. Add --self-test with injected fixtures proving each measure
+    fires: a constant-valued column reports 1 distinct value; a varied one
+    reports many; an all-null field reports nullity 1.0; identical text
+    prefixes report boilerplate; a missing evidence column reports ungrounded.
+    State the pass count. A measure you have not seen fire is a measure you do
+    not have - AR-6.4 and AR-8 both proved that the hard way.
+
+    WINDOW HANDLING. If an agent has fewer than 5 output rows, that is itself
+    the finding - report INSUFFICIENT SAMPLE with n, never pad the sample and
+    never widen the window silently to reach a number.
+
+    NO FIXES AND NO VERDICTS IN THIS PROMPT.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md and SESSION_STATE.md with the
+    harness location, its self-test result, and how many census agents it can
+    locate output for versus UNLOCATABLE.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck. Run the self-test and paste its real output. Then state
+    the locatable/unlocatable split across the census.
+
+    COMMIT (scoped - never `git add -A`)
+    git add scripts/audit test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md
+    git commit -m "[FORGE] AR-17.1: read-only output-quality sampler with self-tested variance, nullity, boilerplate and grounding measures"
+    git push origin main
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - scripts/audit/output-quality-sampler.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-17-2-assess-scoring
+  name: Phase 17.2 The scoring agents - plot what they actually emit
+  description: Every score this platform shows a customer, distribution first
+  phase: "17"
+  prompt: |
+    BENAVORA - PHASE 17.2 - ASSESS THE SCORING FAMILY
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Run scripts/audit/output-quality-sampler.mjs over every agent that emits a
+    score, probability, rank, match strength or confidence. From the census
+    that includes at minimum eligibility_scoring, success_probability,
+    ag22_propensity_scoring, fundability, ag-15-probability and the PIL
+    qualification squads - but derive the full list from the census rather than
+    trusting this sentence.
+
+    These matter most because they are the numbers the product puts in front
+    of a customer as advice.
+
+    WRITE test-evidence/AGENT_OUTPUT_QUALITY_SCORING.md. Per agent:
+      - what it is contracted to produce, quoted from its own header or type
+      - n and date range
+      - THE FULL VALUE DISTRIBUTION, as a table. Not a mean. The distribution.
+      - verdict: USEFUL / THIN / WRONG / DEGENERATE / INSUFFICIENT SAMPLE
+      - the specific mechanism where it is not useful, traced into the code
+
+    THE FAILURE MODES TO HUNT, all of which pass every existing gate:
+      - DEGENERATE: every score is 50, every match is 0.75. Low variance
+        across genuinely different inputs is the tell.
+      - EMPTY-BUT-VALID: valid JSON, null fields, an analysis that says
+        nothing.
+      - UNGROUNDED CONFIDENCE: a high score with no supporting evidence field.
+      - STALE: a score computed from data old enough that it is now wrong.
+
+    FOR EVERY DEGENERATE VERDICT, TRACE THE CAUSE BEFORE CLOSING IT OUT. Name
+    the line. The candidates, and check each:
+      - a default returned on an error path that is being hit every time, so
+        the score is the fallback and the real failure is invisible. AR-7.3
+        and AR-11.2 made errors honest - read what they changed first.
+      - a Claude prompt that omits the data needed to differentiate, so every
+        input looks alike to the model
+      - a response parsed loosely, so a malformed answer becomes a default
+        rather than an error
+      - a formula whose inputs are all null, producing the same arithmetic
+      - a cache returning one org's result for every org. Check tenancy in the
+        cache key. That is a correctness AND a privacy defect and if you find
+        it, say so at the top of the report, not in a list.
+
+    CROSS-CHECK AGAINST THE UI. For each scoring agent, find where its number
+    is displayed and record what the customer is told it means. A constant
+    score presented as a personalised assessment is the most serious class of
+    defect in this queue.
+
+    NO FIXES IN THIS PROMPT. 17.5 fixes.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    AGENTS_v2.md with the per-agent verdicts.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm test. Real numbers. Then state how many scoring
+    agents emit a genuinely varied score, and name every DEGENERATE one -
+    those are agents the platform currently believes are working.
+
+    COMMIT (scoped - never `git add -A`)
+    git add test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md AGENTS_v2.md
+    git commit -m "[FORGE] AR-17.2: scoring-family output distributions from real production rows with causes traced"
+    git push origin main
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - test-evidence/AGENT_OUTPUT_QUALITY_SCORING.md
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-17-3-assess-research
+  name: Phase 17.3 The research and discovery agents - is any of it true
+  description: Hallucinated funder facts are worse than no funder facts
+  phase: "17"
+  prompt: |
+    BENAVORA - PHASE 17.3 - ASSESS THE RESEARCH AND DISCOVERY FAMILY
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Run the sampler over every agent that discovers, enriches, extracts or
+    researches: donor discovery, funder enrichment, the knowledge indexer,
+    corporate prospect agents, the XML/990 enrichment path, contact
+    extraction, eligibility-criteria extraction.
+
+    THIS FAMILY'S PRIMARY FAILURE MODE IS NOT DEGENERACY. IT IS FABRICATION.
+    A funder record that looks complete and contains an invented deadline,
+    grant range, program officer or eligibility rule is worse than an empty
+    record, because the customer acts on it.
+
+    WRITE test-evidence/AGENT_OUTPUT_QUALITY_RESEARCH.md. Per agent, beyond
+    the standard sampler output:
+      - PROVENANCE: for each extracted or enriched field, is a source URL,
+        document id or 990 filing reference stored alongside it? Report the
+        proportion of fields with provenance versus without.
+      - FABRICATION SPOT-CHECK: take 10 recent enriched records and verify
+        each specific claim - deadline, grant range, contact, eligibility
+        text - against the stored source. Report matched / contradicted /
+        unverifiable-because-no-source. Do not sample only the records that
+        look good.
+      - COVERAGE HONESTY: where an agent returned a record with fields it
+        could not determine, did it leave them null or fill them with a
+        plausible guess? The second is the defect.
+
+    ag-29-knowledge-indexer GETS ITS OWN SECTION. It has roughly 63,941
+    lifetime runs, every one processing zero items, and accounts for close to
+    44 percent of all agent_runs ever recorded on this platform. Verify those
+    figures live rather than repeating them from this prompt. Then answer three
+    questions with evidence: what does it believe it is iterating over, why is
+    that set empty, and is the correct resolution to fix it or delete it. If
+    the honest answer is delete, say so - AR-15 owns the deletion, this prompt
+    owns the verdict.
+
+    NO FIXES IN THIS PROMPT. 17.6 fixes.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    AGENTS_v2.md with the provenance and fabrication figures.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm test. Real numbers. Then state the platform-wide
+    proportion of enriched funder fields that carry provenance, and the
+    contradicted count from the spot-check. If any claim was contradicted by
+    its own source, lead with that.
+
+    COMMIT (scoped - never `git add -A`)
+    git add test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md AGENTS_v2.md
+    git commit -m "[FORGE] AR-17.3: research-family provenance audit and fabrication spot-check against stored sources"
+    git push origin main
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - test-evidence/AGENT_OUTPUT_QUALITY_RESEARCH.md
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-17-4-assess-drafting
+  name: Phase 17.4 The drafting agents - would a program officer read this
+  description: Narrative output is where boilerplate hides best
+  phase: "17"
+  prompt: |
+    BENAVORA - PHASE 17.4 - ASSESS THE DRAFTING AND GENERATION FAMILY
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Run the sampler over every agent that generates prose or a document: LOI
+    and narrative drafting, the twin-powered draft path, budget narrative,
+    executive summary, outreach and sales-outreach copy, AutoApply's form
+    answer generation.
+
+    This is the family where a customer's judgement of the product is formed,
+    and where boilerplate is hardest to see because every individual output
+    reads fine.
+
+    WRITE test-evidence/AGENT_OUTPUT_QUALITY_DRAFTING.md. Per agent:
+      - 5 to 10 full real outputs, untruncated
+      - CROSS-ORG SIMILARITY: compare outputs generated for DIFFERENT
+        organizations and different funders. Report the shared proportion.
+        Two different nonprofits receiving near-identical narratives is the
+        defect this section exists to find.
+      - ORG-SPECIFICITY: does the draft contain facts that could only come
+        from this organization's own profile and knowledge base - its
+        programs, its numbers, its history - or only generic nonprofit prose
+        with a name substituted in?
+      - FUNDER-SPECIFICITY: does it address the funder's stated priorities and
+        actual questions, or ignore them?
+      - FABRICATION: any figure, outcome, beneficiary count or past-award
+        claim not present in the organization's own stored data. Verify
+        against the knowledge base. A drafting agent that invents an outcome
+        number exposes the customer to a materially false statement in a
+        funding application - treat any instance as the most serious finding
+        in this queue and lead the report with it.
+      - LENGTH AND FORMAT versus the funder's stated limits where known.
+
+    AUTOAPPLY FORM ANSWERS GET THEIR OWN SECTION. AR-12 found EIN, email,
+    phone and address were silently unfillable for every organization because
+    FormFillerAgent.buildFillData() matched knowledge_base.category strings
+    against a closed enum with no such members. Verify that fix held in
+    production, then assess what the Claude fallback is actually writing into
+    the fields it does fill.
+
+    NO FIXES IN THIS PROMPT. 17.6 fixes.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    AGENTS_v2.md with cross-org similarity figures and any fabrication found.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm test. Real numbers. Then answer in one paragraph,
+    plainly: if a program officer read the best and the worst of these drafts,
+    what would they conclude. Quote from both.
+
+    COMMIT (scoped - never `git add -A`)
+    git add test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md AGENTS_v2.md
+    git commit -m "[FORGE] AR-17.4: drafting-family cross-org similarity, specificity and fabrication assessment"
+    git push origin main
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - test-evidence/AGENT_OUTPUT_QUALITY_DRAFTING.md
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-17-5-fix-scoring
+  name: Phase 17.5 Fix the scores at the cause
+  description: A constant score is a bug that every gate currently passes
+  phase: "17"
+  prompt: |
+    BENAVORA - PHASE 17.5 - FIX DEGENERATE SCORING
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Read test-evidence/AGENT_OUTPUT_QUALITY_SCORING.md. Fix every agent it
+    marks DEGENERATE or WRONG. THIN is lower priority; record explicitly what
+    you skip and why.
+
+    FIX THE CAUSE THE ASSESSMENT TRACED, NOT THE SYMPTOM. Adding jitter or
+    spread to make scores look varied is fabrication and is the single
+    forbidden move in this prompt. If an agent cannot score meaningfully
+    because its inputs are missing, the correct output is an explicit
+    insufficient-data outcome, not a number. Make that a first-class result
+    the UI can render, not a magic sentinel value.
+
+    GROUND EVERY SCORE. Where an agent emits a score or probability it must
+    also emit the evidence it used - which inputs, which weights, which
+    source rows. A number with nothing behind it is the same defect class as
+    status='submitted' with no confirmation.
+
+    IF A CACHE KEY WAS MISSING TENANCY, that is a cross-organization data leak
+    and it is the highest-priority item in this prompt regardless of what else
+    is on the list. Fix it first, prove the fix with a test that two orgs
+    cannot receive each other's cached result, and say so at the top of your
+    report.
+
+    DO NOT WEAKEN A GUARD TO MAKE A NUMBER MOVE. The AutoApply approval gate
+    and mutual-exclusion guard are out of scope here and stay untouched.
+
+    INCREMENTAL TESTING CHECKPOINT
+    src/__tests__/integration/scoring-output-quality.test.ts asserting, per
+    fixed agent: genuinely different inputs produce different outputs; missing
+    inputs produce an explicit insufficient-data result rather than a default;
+    every score carries its evidence; and cache keys are org-scoped.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md, AGENTS_v2.md
+    and BEHAVIORAL_CONTRACTS.md with the scoring output contract.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test. Real numbers. Then re-run
+    scripts/audit/output-quality-sampler.mjs against every agent you touched
+    and print the new distribution beside the old one. IF A DISTRIBUTION HAS
+    NOT CHANGED, THE FIX DID NOT WORK - say so plainly rather than reporting
+    the code change as the result.
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/lib src/app src/__tests__ supabase/migrations test-evidence
+    git commit -m "[FORGE] AR-17.5: degenerate scores fixed at the cause; every score carries evidence or declares insufficient data"
+    git push origin main
+  gates:
+  - type: compile
+  - type: test
+  - type: file_exists
+    files:
+    - src/__tests__/integration/scoring-output-quality.test.ts
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-17-6-fix-research-drafting
+  name: Phase 17.6 Make research grounded and drafts specific
+  description: No claim without a source, no narrative without the organization in it
+  phase: "17"
+  prompt: |
+    BENAVORA - PHASE 17.6 - FIX RESEARCH AND DRAFTING OUTPUT
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Read test-evidence/AGENT_OUTPUT_QUALITY_RESEARCH.md and
+    test-evidence/AGENT_OUTPUT_QUALITY_DRAFTING.md. Fix every DEGENERATE and
+    WRONG verdict in both.
+
+    RESEARCH SIDE - ENFORCE PROVENANCE STRUCTURALLY, NOT BY CONVENTION.
+      - Every extracted or enriched field carries its source - URL, document
+        id, or filing reference - stored in the same write.
+      - A field the agent could not determine from a source stays NULL. Filling
+        it with a plausible guess is the defect; make the code unable to do it.
+      - Add a database-level constraint or trigger where the schema permits it,
+        so an enriched value without provenance cannot be written at all. A
+        convention that relies on every future call site remembering is the
+        pattern that produced this audit.
+      - Where the assessment found contradicted claims, quarantine those rows
+        rather than silently correcting them, and record the count.
+
+    DRAFTING SIDE - MAKE SPECIFICITY A HARD REQUIREMENT.
+      - A draft must incorporate named facts from the organization's own
+        profile and knowledge base. Where those facts are absent, the correct
+        behaviour is to return an explicit incomplete-draft result naming what
+        is missing, not to emit generic prose that reads finished.
+      - No figure, outcome, beneficiary count or past-award claim may appear
+        in a draft unless it is present in the organization's stored data.
+        Enforce this in code and prove it with a test that a fabricated figure
+        cannot survive.
+      - Address the funder's stated priorities and questions where they are
+        stored.
+
+    ag-29-knowledge-indexer: implement whatever 17.3 concluded. If the verdict
+    was fix, fix it and prove it processes non-zero items. If the verdict was
+    delete, do NOT delete it here - record the verdict for AR-15 and disable
+    it so it stops consuming 44 percent of agent_runs in the meantime.
+
+    NEVER submit to a real funder's portal to manufacture a success. Any
+    end-to-end drafting proof runs against fixtures.
+
+    INCREMENTAL TESTING CHECKPOINT
+    src/__tests__/integration/research-drafting-quality.test.ts asserting: an
+    enriched field without provenance is rejected; an undeterminable field
+    stays null rather than being guessed; a draft for an org with a sparse
+    profile returns incomplete rather than generic prose; two different orgs
+    produce materially different drafts from the same funder; and a fabricated
+    figure is caught.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md, AGENTS_v2.md
+    and BEHAVIORAL_CONTRACTS.md with the provenance and specificity contracts.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test. Real numbers. Then re-run the
+    sampler over every agent you touched and report the new provenance
+    proportion and the new cross-org similarity figure against the old ones.
+    A figure that did not move means the fix did not work - say so.
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/lib src/app src/__tests__ supabase/migrations test-evidence
+    git commit -m "[FORGE] AR-17.6: provenance enforced structurally on enrichment; drafts required to be org-specific or declare themselves incomplete"
+    git push origin main
+  gates:
+  - type: compile
+  - type: test
+  - type: file_exists
+    files:
+    - src/__tests__/integration/research-drafting-quality.test.ts
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-17-7-reclassify
+  name: Phase 17.7 Stop calling deterministic scripts agentic
+  description: Honest reclassification only - no code uplift in this prompt
+  phase: "17"
+  prompt: |
+    BENAVORA - PHASE 17.7 - HONEST AGENTIC RECLASSIFICATION
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    test-evidence/AGENT_CENSUS.md scored each agent against the rubric from
+    the 2026-09-16 audit: llm 30 / autonomy 20 / tools 15 / authority 15 /
+    iteration 10 / feedback 10.
+
+    THIS PROMPT CHANGES DOCUMENTATION AND CLASSIFICATION, NOT BEHAVIOUR. It
+    exists separately from the uplift because the two jobs have been conflated
+    in this project for months, and the conflation is why the inventory cannot
+    be reasoned about.
+
+    FOR EVERY AGENT IN THE CENSUS, assign one of four classifications and
+    justify it from the code, not from its name or its docstring:
+      - DETERMINISTIC BY DESIGN: a scheduler, reaper, indexer, poller,
+        reconciler or formatter. It has no business being agentic. Calling it
+        an agent has made this inventory harder to reason about for months.
+        Reclassifying it is a win, not a demotion - say so in the doc.
+      - DETERMINISTIC MISLABELLED AS AGENTIC: documented as agentic, actually
+        a script with one Claude call bolted on, AND its job would not benefit
+        from autonomy. Reclassify. Do not uplift it to justify its old label.
+      - GENUINELY AGENTIC: meets the rubric in fact.
+      - SHOULD BE AGENTIC, ISN'T YET: its job genuinely benefits from
+        autonomy - research, discovery, drafting, matching, qualification -
+        and it currently does not have it. This is the ONLY class 17.8 touches.
+
+    WRITE AN AUTHORITY BOUNDARY FOR EVERY AGENT, in
+    test-evidence/AGENT_AUTHORITY_BOUNDARIES.md: what it may decide alone,
+    what requires a human gate, and what it may never do. Written down per
+    agent rather than left implicit. No agent may submit, send, spend or
+    delete without a human gate - state that per agent rather than assuming it
+    is understood.
+
+    RENAMING IS ALLOWED, REWIRING IS NOT. If reclassification implies a file
+    or symbol should move out of the agents directory, record the move as a
+    recommendation for AR-15 and do not perform it here - AR-15 owns
+    consolidation and deletion, and two prompts moving the same files will
+    collide.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    AGENTS_v2.md so every agent's stated classification matches its code.
+    AGENTS_v2.md is the source of truth other prompts read - if it currently
+    claims agentic behaviour that does not exist, correcting it is the single
+    most valuable output of this prompt.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm test. Real numbers. Then state the four
+    classification counts, and how many agents AGENTS_v2.md previously
+    described inaccurately. Name the worst three mislabels.
+
+    COMMIT (scoped - never `git add -A`)
+    git add test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md AGENTS_v2.md
+    git commit -m "[FORGE] AR-17.7: every agent reclassified against the rubric from its code, with a written authority boundary"
+    git push origin main
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - test-evidence/AGENT_AUTHORITY_BOUNDARIES.md
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-17-8-uplift-iteration
+  name: Phase 17.8 Bounded self-evaluation where one shot is not enough
+  description: The commonest agentic gap - a poor first answer that nothing checks
+  phase: "17"
+  prompt: |
+    BENAVORA - PHASE 17.8 - ITERATION AND TOOL USE UPLIFT
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Read test-evidence/AGENT_AUTHORITY_BOUNDARIES.md. Uplift ONLY agents
+    classified SHOULD BE AGENTIC, ISN'T YET. Every other class is out of scope
+    and touching one is a scope violation, not initiative.
+
+    TWO DIMENSIONS IN THIS PROMPT, the two with the clearest payoff:
+
+    ITERATION. A one-shot Claude call that returns something poor and stops is
+    the commonest gap in this codebase. Add a bounded self-check: evaluate the
+    output against the agent's own contract, and retry with the critique in
+    context if it fails. The evaluation criteria must be the SAME measures
+    17.1 built - variance, grounding, specificity, nullity - so that an agent
+    rejects its own output for the same reasons the audit would.
+
+    TOOLS. An agent that gives up because a field is null, when it could look
+    that value up, is doing less than it could. Give it the fetch it needs.
+    A tool call that could write, spend or submit is not in scope here.
+
+    HARD CONSTRAINTS, none negotiable:
+      - EVERY iteration loop has a hard cap, stated in the code and in the
+        docs. An unbounded self-critiquing agent is how a four dollar run
+        becomes a four hundred dollar run, and this platform has no
+        circuit-breaker culture to catch it.
+      - Every uplifted agent runs under a cost budget with the mid-run
+        enforcement from AR-10.3 and respects its AR-11.4 timeout class. If
+        either is missing for an agent, wire it before uplifting it.
+      - Every retry writes its own ai_usage_log row. An iteration loop that
+        bills three Claude calls and records one re-breaks the ledger AR-10
+        just made honest.
+      - No agent gains authority to submit, send, spend or delete
+        unattended. Autonomy in analysis, never in irreversible action.
+
+    WORK IN BATCHES OF THREE TO FIVE AGENTS. Measure, report, continue. Do not
+    uplift twenty agents and then measure.
+
+    MEASURE BEFORE AND AFTER, WITH THE SAMPLER. An uplift that does not
+    measurably improve output quality is complexity for nothing: REVERT IT and
+    record the revert as a finding. A reverted uplift honestly reported is a
+    better outcome for this build than a retained one that changed no number.
+
+    INCREMENTAL TESTING CHECKPOINT
+    src/__tests__/integration/agentic-uplift.test.ts asserting: the iteration
+    cap holds under a pathological input that always fails self-evaluation; a
+    bounded retry measurably improves a deliberately poor first result;
+    budget enforcement stops a runaway loop mid-iteration; every iteration is
+    billed to the ledger; and no uplifted agent can take an irreversible
+    action unattended.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md, AGENTS_v2.md
+    and BEHAVIORAL_CONTRACTS.md with each uplifted agent's iteration cap,
+    budget, timeout class and authority boundary.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test. Real numbers. Then state per
+    uplifted agent: before and after maturity score, before and after output
+    quality from the sampler, the iteration cap, and the measured cost delta
+    per run. Name every uplift you reverted and why. Then state the count of
+    agents that remain SHOULD BE AGENTIC, ISN'T YET and were not reached -
+    an honest remainder is required, not optional.
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/lib src/__tests__ test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md AGENTS_v2.md
+    git commit -m "[FORGE] AR-17.8: bounded, budgeted, ledger-billed self-evaluation on agents where it measurably improved output"
+    git push origin main
+  gates:
+  - type: compile
+  - type: test
+  - type: file_exists
+    files:
+    - src/__tests__/integration/agentic-uplift.test.ts
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt

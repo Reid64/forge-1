@@ -1,0 +1,191 @@
+project: benavora
+governance:
+- STATE_OF_THE_BUILD.md
+- SESSION_STATE.md
+- BLUEPRINT.md
+- DESIGN_SYSTEM.md
+
+prompts:
+
+# ===== P0 FIX: ARCHIVED PROSPECTS =====
+
+- id: p0-fix-archived-001
+  name: Find and fix archived prospect filtering in Donor Discovery
+  description: Exclude archived prospects from discovery results and rankings
+  phase: fix
+  prompt: "Search codebase for Donor Discovery result display/ranking logic. Find: (1) src/app/api/donor-discovery/prospects route or handler, (2) src/lib/donor-discovery queries, (3) any UI component that displays discovery results. In each location found, add filter: WHERE pipeline_stage != 'archived'. Verify: (1) Top 3 prospects for Faith Foundation org (b1ab7402-dfc2-4712-869f-70ea3566cc1d) should no longer include archived rows, (2) New top prospect(s) should have pipeline_stage 'new' or 'qualified', (3) pnpm tsc --noEmit = 0 errors."
+  gates:
+  - type: compile
+
+- id: p0-fix-archived-002
+  name: Commit P0 fix
+  description: Commit archived prospect filtering fix
+  phase: fix
+  prompt: "Run: git add -A && git commit -m 'P0 fix: Exclude archived prospects from Donor Discovery results and rankings' && git push origin main. Update STATE_OF_THE_BUILD.md with: 'P0 Bug Fixed — Donor Discovery no longer displays archived prospects as top matches. Pipeline stage filtering applied to all discovery queries.' Report: git push successful? YES/NO."
+  gates:
+  - type: compile
+
+# ===== GOOGLE FOR NONPROFITS: RESEARCH =====
+
+- id: google-research-001
+  name: Scrape Google for Nonprofits official documentation
+  description: Extract complete Google for Nonprofits application process, eligibility, benefits
+  phase: research
+  prompt: "Visit https://www.google.com/nonprofits/. Scrape and document in src/lib/google-nonprofit/research/google-for-nonprofits.md: (1) Full application process with step-by-step instructions, (2) Eligibility requirements, (3) Benefits provided (ad grants, workspace, maps, etc), (4) Timeline and approval process, (5) Required documentation, (6) Contact and support info. Create comprehensive markdown file with all sections. File must be complete and readable. Verify file exists and contains at least 2000 characters."
+  gates:
+  - type: file_exists
+    files:
+    - src/lib/google-nonprofit/research/google-for-nonprofits.md
+
+- id: google-research-002
+  name: Scrape Google Business Profile best practices
+  description: Extract complete guide on Google Business Profile setup and optimization
+  phase: research
+  prompt: "Visit https://business.google.com/. Scrape and document in src/lib/google-nonprofit/research/business-profile-guide.md: (1) Step-by-step setup process for nonprofit business profiles, (2) Profile optimization best practices, (3) How to add photos and posts, (4) Reviews and messaging management, (5) Local search optimization strategies, (6) Analytics and insights, (7) Common mistakes to avoid. Create comprehensive markdown file. Verify file contains at least 2500 characters and covers all sections."
+  gates:
+  - type: file_exists
+    files:
+    - src/lib/google-nonprofit/research/business-profile-guide.md
+
+- id: google-research-003
+  name: Compile research into knowledge base JSON
+  description: Convert scraped content into structured knowledge base for dashboard
+  phase: research
+  prompt: "Read both markdown files created in prompts 001 and 002. Combine into src/lib/google-nonprofit/research/knowledge-base.json with structure: {sections: [{name, content, steps, tips}]}. Include: (1) Google for Nonprofits application section, (2) Business profile setup section, (3) Optimization tips section, (4) FAQ section with common questions/answers. File must be valid JSON. Run: pnpm tsc --noEmit. Must be 0 errors."
+  gates:
+  - type: file_exists
+    files:
+    - src/lib/google-nonprofit/research/knowledge-base.json
+  - type: compile
+
+# ===== GOOGLE FOR NONPROFITS: BUILD =====
+
+- id: google-build-001
+  name: Create Google for Nonprofits application form component
+  description: Build multi-step form for Google for Nonprofits application intake
+  phase: build
+  prompt: "Create src/components/GoogleNonprofitForm.tsx with: (1) Multi-step form (5 steps: Organization Info, Eligibility, Documents, Contact, Review), (2) Form fields match Google requirements (org name, EIN, mission, annual budget, etc), (3) File upload for required documents, (4) Save progress to localStorage, (5) Submit to backend (POST /api/google-nonprofit/apply), (6) Use forest green (#3D6B50) and gold (#C49A4F) from design system. Export as default component. Run: pnpm tsc --noEmit. Must be 0 errors."
+  gates:
+  - type: file_exists
+    files:
+    - src/components/GoogleNonprofitForm.tsx
+  - type: compile
+
+- id: google-build-002
+  name: Create Google Business Profile setup wizard
+  description: Step-by-step wizard for creating nonprofit business profile
+  phase: build
+  prompt: "Create src/components/GoogleBusinessProfileWizard.tsx with: (1) 4-step wizard (Profile Basics, Photos & Description, Services, Verification), (2) Real-time preview of business profile as they fill it in, (3) Tips and best practices shown alongside each step from knowledge base, (4) Save progress to localStorage, (5) Generate downloadable checklist PDF at end, (6) Use design system colors. Export as default component. Run: pnpm tsc --noEmit. Must be 0 errors."
+  gates:
+  - type: file_exists
+    files:
+    - src/components/GoogleBusinessProfileWizard.tsx
+  - type: compile
+
+- id: google-build-003
+  name: Create instructional content dashboard section
+  description: Display Google for Nonprofits and Business Profile guides with tips
+  phase: build
+  prompt: "Create src/components/GoogleResourcesHub.tsx with: (1) Tab navigation: 'For Nonprofits App', 'Business Profile Setup', 'Optimization Tips', 'FAQ'. (2) Read knowledge-base.json and display content in each tab, (3) Searchable content within tabs, (4) Print-friendly styling, (5) Links to official Google pages. Export as default component. Run: pnpm tsc --noEmit. Must be 0 errors."
+  gates:
+  - type: file_exists
+    files:
+    - src/components/GoogleResourcesHub.tsx
+  - type: compile
+
+- id: google-build-004
+  name: Create Google dashboard main page
+  description: Combine all components into main Google for Nonprofits dashboard
+  phase: build
+  prompt: "Create src/app/(dashboard)/google-nonprofit/page.tsx with: (1) Max-width 1200px container, (2) Three main sections: Application Manager (GoogleNonprofitForm), Business Profile Setup (GoogleBusinessProfileWizard), Resources Hub (GoogleResourcesHub), (3) Progress tracking (% complete for app, % complete for profile), (4) AI Chatbot available on page (ChatbotAssistant with pageContext='google-nonprofit'), (5) Design system colors. Test on localhost:3000/google-nonprofit. Run: pnpm tsc --noEmit. Must be 0 errors."
+  gates:
+  - type: file_exists
+    files:
+    - src/app/(dashboard)/google-nonprofit/page.tsx
+  - type: compile
+
+- id: google-build-005
+  name: Add Google Nonprofit nav item to sidebar
+  description: Add navigation link to new Google for Nonprofits dashboard
+  phase: build
+  prompt: "Update src/components/layout/nav-items.ts: Add new nav item under 'Resources' section: {label: 'Google for Nonprofits', href: '/google-nonprofit', icon: 'ti-world'}. Verify nav item appears in sidebar on localhost:3000. Run: pnpm tsc --noEmit. Must be 0 errors."
+  gates:
+  - type: compile
+
+- id: google-build-006
+  name: Create API endpoint for application submission
+  description: Build backend endpoint to save Google for Nonprofits applications
+  phase: build
+  prompt: "Create src/app/api/google-nonprofit/apply/route.ts with: (1) POST endpoint that accepts form data, (2) Validates required fields, (3) Stores application to database (create google_nonprofit_applications table if needed), (4) Sends confirmation email, (5) Returns application ID, (6) Error handling. Use Supabase for storage. Run: pnpm tsc --noEmit. Must be 0 errors."
+  gates:
+  - type: file_exists
+    files:
+    - src/app/api/google-nonprofit/apply/route.ts
+  - type: compile
+
+- id: google-build-007
+  name: Commit Google for Nonprofits feature
+  description: Final commit and push
+  phase: build
+  prompt: "Run: git add -A && git commit -m 'Add Google for Nonprofits dashboard: application manager, business profile wizard, instructional resources, AI-powered guidance' && git push origin main. Update STATE_OF_THE_BUILD.md: 'Google for Nonprofits feature complete — full application intake, business profile setup wizard, resource hub with optimization tips, integrated AI chatbot.' Report: git push successful? YES/NO."
+  gates:
+  - type: compile
+
+# ===== AI CHATBOT =====
+
+- id: chatbot-001
+  name: Embed Benavora knowledge base into vector database
+  description: Ingest PRD, feature specs, workflows, user guides into knowledge base
+  phase: build
+  prompt: "Read these governance files in full: BLUEPRINT.md, PRD.md, DESIGN_SYSTEM.md, BEHAVIORAL_CONTRACTS.md, FEATURE_REGISTRY.md. Extract key knowledge about: (1) donor discovery workflow, (2) AutoApply pipeline, (3) draft generation, (4) opportunity matching, (5) each dashboard page purpose and content. Create a comprehensive knowledge base JSON file at src/lib/chatbot/knowledge-base.json with sections for each workflow. Include example questions users might ask and detailed answers for each. File must have valid JSON structure. Run: pnpm tsc --noEmit. Must be 0 errors."
+  gates:
+  - type: file_exists
+    files:
+    - src/lib/chatbot/knowledge-base.json
+  - type: compile
+
+- id: chatbot-002
+  name: Create intelligent chat UI component with avatar bubble
+  description: Build React chatbot component with chat bubble, message history, avatar character
+  phase: build
+  prompt: "Create src/components/ChatbotAssistant.tsx with: (1) Bottom-right floating chat bubble (50px circle, minimizable). (2) Click bubble opens chat panel (400px wide, 600px tall max). (3) Chat history display with user/bot messages. (4) Input field with send button. (5) Avatar character image/icon at top of panel. (6) Use forest green (#3D6B50) and gold (#C49A4F) accent colors from design system. (7) Draggable panel, closeable. (8) localStorage to persist panel open/closed state per page. Export default component. Run: pnpm tsc --noEmit. Must be 0 errors."
+  gates:
+  - type: file_exists
+    files:
+    - src/components/ChatbotAssistant.tsx
+  - type: compile
+
+- id: chatbot-003
+  name: Build chatbot message engine with knowledge base queries
+  description: Create hook/service that queries knowledge base and generates contextual responses
+  phase: build
+  prompt: "Create src/lib/chatbot/useChatbotEngine.ts hook that: (1) Accepts user message string. (2) Reads knowledge-base.json. (3) Performs semantic similarity match (use simple word overlap for MVP). (4) Finds best matching answer from knowledge base. (5) Returns bot response string. (6) Handles edge cases: unknown questions return 'I can help with Donor Discovery, AutoApply, Draft Generation, Applications, or Opportunities. What would you like to know?'. Export useChatbotEngine hook for use in ChatbotAssistant. Test locally: console.log responses for 5 different questions. Run: pnpm tsc --noEmit. Must be 0 errors."
+  gates:
+  - type: file_exists
+    files:
+    - src/lib/chatbot/useChatbotEngine.ts
+  - type: compile
+
+- id: chatbot-004
+  name: Integrate chatbot on all dashboard pages
+  description: Add ChatbotAssistant component to 7 main pages
+  phase: build
+  prompt: "Add ChatbotAssistant component to these pages: (1) src/app/(dashboard)/page.tsx (Dashboard), (2) src/app/(dashboard)/opportunities/page.tsx, (3) src/app/(dashboard)/prospects-analysis/page.tsx, (4) src/app/(dashboard)/applications/page.tsx, (5) src/app/(dashboard)/engagement/page.tsx, (6) src/app/(dashboard)/resources/page.tsx, (7) src/app/(dashboard)/settings/page.tsx. For each page: import ChatbotAssistant at top, add <ChatbotAssistant /> component at end of JSX (before closing fragment/container). Component should be positioned fixed bottom-right. Test on localhost:3000: navigate to each of the 7 pages, verify chat bubble appears bottom-right on all of them. Run: pnpm tsc --noEmit. Must be 0 errors."
+  gates:
+  - type: compile
+
+- id: chatbot-005
+  name: Add page-specific context to chatbot
+  description: Make chatbot aware of current page and provide contextual help
+  phase: build
+  prompt: "Update ChatbotAssistant.tsx to accept optional pageContext prop (dashboard | opportunities | prospects | applications | engagement | resources | settings). Modify useChatbotEngine to use pageContext when searching knowledge base. Example: if user asks 'How do I find donors?' on opportunities page, suggest 'You might want to go to Prospects & Analysis to run Donor Discovery first.' Update all 7 page integrations to pass pageContext prop. Test: on Opportunities page, ask chatbot 'How do I use this page?' — should give opportunity-specific guidance. Run: pnpm tsc --noEmit. Must be 0 errors."
+  gates:
+  - type: compile
+
+- id: chatbot-006
+  name: Commit chatbot to main
+  description: Final commit with all chatbot code and governance updates
+  phase: build
+  prompt: "Run: git add -A && git commit -m 'Add AI chatbot assistant: intelligent character bubble trained on Benavora knowledge, integrated on all pages, contextual help per page' && git push origin main. Update STATE_OF_THE_BUILD.md: 'Chatbot assistant complete — chat bubble on all pages, trained on Benavora workflows (Donor Discovery, AutoApply, Draft Generation, Applications pipeline), contextual help per page.' Report: git push successful? YES/NO."
+  gates:
+  - type: compile

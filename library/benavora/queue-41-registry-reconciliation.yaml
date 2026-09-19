@@ -1,0 +1,76 @@
+project: benavora
+github_repo: Reid64/benavora
+supabase_project_ref: vbjplpquqxxfbpazyalt
+vercel_project_name: benavora
+domain: benavora.com
+
+governance:
+  - FEATURE_REGISTRY_v2.md
+  - STANDING_DIRECTIVES.md
+  - AGENT_VERIFICATION_LOG.md
+
+settings:
+  max_retries_per_prompt: 3
+  build_model: claude-sonnet-4-6-20250514
+  review_model: claude-sonnet-4-6-20250514
+  report_model: claude-haiku-4-5-20251001
+  permission_mode: acceptEdits
+  allowed_tools: "*"
+  review_frequency: 5
+  governance_check_frequency: 10
+
+prompts:
+
+  - id: reg-verify-001
+    phase: build
+    description: "Live-verify remaining rows flagged in the 2026-08-07 reconciliation pass note"
+    prompt: |
+      Read FEATURE_REGISTRY_v2.md's reconciliation note near line 571-575 in full, listing rows corrected in the 2026-08-07 session: #79, #98, #135, #136, #140, #152, #156, #157, #158, #159, #161, #162, #163, #164, #165.
+
+      Rows #98, #100, #116 were already independently re-verified live outside this queue as of 2026-08-11 - skip those three, they are current.
+
+      For each remaining row (#79, #135, #136, #140, #152, #156, #157, #158, #159, #161, #162, #163, #164, #165), independently re-verify its CURRENT claimed status against live evidence, using DIRECTIVE-017's psql path (C:\Users\manag\Documents\benavora\.env.local DATABASE_URL) for any DB claim, and repo-wide grep or direct file read for any code/wiring claim. Do not trust the row's existing prose - re-derive the fact from a real command run in this session.
+
+      Write your findings to a new file DATED_VERIFICATION_2026-08-12.md, one entry per row: row number, the claim as currently written, the command run, the actual output, and CONFIRMED or STALE.
+
+      This prompt makes NO edits to FEATURE_REGISTRY_v2.md itself - verification only. Correction happens in the next prompt.
+    expected_outputs:
+      - DATED_VERIFICATION_2026-08-12.md
+    gates:
+      - type: file_exists
+        files: [DATED_VERIFICATION_2026-08-12.md]
+    max_retries: 3
+    on_fail: halt
+
+  - id: reg-correct-001
+    phase: build
+    description: "Correct any rows found stale in reg-verify-001"
+    prompt: |
+      Read DATED_VERIFICATION_2026-08-12.md in full.
+
+      For every row marked STALE, correct FEATURE_REGISTRY_v2.md's entry for that row number: update its status and add a dated correction note in the same style as the existing 2026-08-07 corrections in this file (cite the exact command and its real output as evidence, not a summary).
+
+      For every row marked CONFIRMED, make no changes - do not add unnecessary "reconfirmed" noise to rows that were already accurate.
+
+      If any row's live-verified status implies a downstream row also needs correction (the same cross-reference pattern already used elsewhere in this doc, e.g. row #100 referencing row #98), apply that correction too and note why.
+    expected_outputs:
+      - FEATURE_REGISTRY_v2.md
+    gates:
+      - type: file_exists
+        files: [FEATURE_REGISTRY_v2.md]
+    max_retries: 3
+    on_fail: halt
+
+  - id: reg-verify-summary-001
+    phase: build
+    description: "Governance sync for this queue"
+    prompt: |
+      1. Run pnpm run build and confirm it is still clean (this queue should not have touched application code).
+      2. Update STATE_OF_THE_BUILD.md and SESSION_STATE.md with a one-paragraph summary: how many rows were re-verified, how many were STALE vs CONFIRMED, and a link to DATED_VERIFICATION_2026-08-12.md for the full evidence trail.
+    expected_outputs:
+      - STATE_OF_THE_BUILD.md
+      - SESSION_STATE.md
+    gates:
+      - type: build
+    max_retries: 3
+    on_fail: halt

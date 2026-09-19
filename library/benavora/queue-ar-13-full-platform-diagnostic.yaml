@@ -1,0 +1,271 @@
+governance:
+- STATE_OF_THE_BUILD.md
+- SESSION_STATE.md
+- AGENTS_v2.md
+project: benavora
+settings:
+  max_retries_per_prompt: 2
+  permission_mode: acceptEdits
+prompts:
+- id: ar-13-1-census
+  name: Phase 13.1 Census - every agent, what invokes it, what it did
+  description: One table, 144 rows, built from live data - the spine every later prompt reads
+  phase: "13"
+  prompt: |
+    BENAVORA - PHASE 13.1 - FULL AGENT CENSUS
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    THIS PROMPT CHANGES NO PRODUCTION CODE. It produces the single document
+    every later phase reads. Get it right and the next twenty prompts are
+    grounded; get it wrong and they inherit your errors.
+
+    Build test-evidence/AGENT_CENSUS.md plus a machine-readable
+    test-evidence/agent-census.json. ONE ROW PER AGENT MODULE ON DISK.
+
+    Columns, every one from live evidence, never from a doc:
+      1.  agent id / agent_type as written to agent_runs or pil_agent_runs
+      2.  module path
+      3.  family (core / pil / autoapply / intelligence / worker / research)
+      4.  INVOKER - what actually calls it in production: cron entry, queue
+          case, orchestrator step, API route, or NOTHING. Name the file:line.
+          Extend test-evidence/AGENT_INVOCATION_MAP.md rather than restarting.
+      5.  lifetime runs, completed, failed, skipped (query agent_runs and
+          pil_agent_runs; agent_type is an enum, cast with ::text)
+      6.  last successful run date, or NEVER
+      7.  runs in the last 7 days
+      8.  median items_processed on successful runs - THE KEY COLUMN. An agent
+          that "succeeds" while processing zero items every time is not working.
+      9.  does it call Claude? does it write to ai_usage_log?
+      10. deterministic or agentic; if agentic, a percentage against the rubric
+          in the 2026-09-16 audit (llm 30 / autonomy 20 / tools 15 /
+          authority 15 / iteration 10 / feedback 10)
+      11. VERDICT, one of: OPERATIONAL / NO-OP (succeeds, does nothing) /
+          DEGRADED / BROKEN / NEVER-INVOKED / ORPHANED (no caller at all)
+      12. one-line evidence for that verdict
+
+    KNOWN ANCHOR FACTS, verified 2026-09-18 - reconcile against them and
+    report any disagreement rather than silently overriding:
+      - 144 agent modules on disk; 93 agent types have executed (69 core, 24
+        PIL); ~51 have never executed.
+      - ag-29-knowledge-indexer: 63,941 lifetime runs, 177 in the last 3 hours,
+        ALL 177 with items_processed = 0, average 0.69s. It is ~44% of every
+        agent_run ever recorded. Establish whether it is SUPPOSED to find work
+        - if the knowledge pipeline upstream has silently stopped, that is a
+        far bigger finding than the noise.
+      - autoapply_queue_processor: 0 completions across 37+ runs.
+      - orchestration_logs is capturing, but in the last 3 hours 100% of what
+        it captured was ag-29's no-op heartbeat.
+
+    METHOD - do not shortcut:
+      - Read the registry at scripts/audit/agent-exercise-registry.ts for the
+        module list.
+      - Query production for every count. No estimates.
+      - For the INVOKER column, actually trace it. "Probably the orchestrator"
+        is not an answer; a file:line is.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    AGENTS_v2.md with the census summary counts by verdict.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm test. Real numbers. Then report the count in each
+    verdict bucket, and name the three findings that most surprised you.
+
+    COMMIT (scoped - never `git add -A`)
+    git add test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md AGENTS_v2.md
+    git commit -m "[FORGE] AR-13.1: full agent census from live data - one row per agent, verdict and evidence"
+    git push origin main
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - test-evidence/AGENT_CENSUS.md
+    - test-evidence/agent-census.json
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-13-2-scheduler-audit
+  name: Phase 13.2 Every scheduler, cron and queue - what fires, how often, why
+  description: 63,941 no-op runs came from somewhere; map every trigger on the platform
+  phase: "13"
+  prompt: |
+    BENAVORA - PHASE 13.2 - SCHEDULER AND TRIGGER AUDIT
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    NO PRODUCTION BEHAVIOUR CHANGES IN THIS PROMPT. Map first.
+
+    ag-29-knowledge-indexer fires roughly once a minute and processes zero
+    items every time - 63,941 lifetime runs. Something schedules that. This
+    prompt finds every such trigger on the platform and writes down what it is
+    supposed to do versus what it does.
+
+    Build test-evidence/SCHEDULER_MAP.md covering EVERY trigger source:
+      - Vercel cron entries (vercel.json and any route with a cron handler)
+      - the Railway worker's interval loops (worker/index.ts and everything it
+        starts)
+      - agent_queue / submission_queue consumers
+      - the autonomous orchestrator's own scheduling
+      - any pg_cron or database-side scheduling (note: pg_cron is NOT
+        installed - confirm and record that)
+      - anything invoked by an API route on a timer or webhook
+
+    Per trigger record: what fires it, the interval or schedule, what it
+    invokes, how many runs that produced in the last 7 days, how many of those
+    did real work (items_processed > 0), and whether the interval is
+    justified by the work available.
+
+    THE QUESTION THIS MUST ANSWER: how much of this platform's 60,000+ agent
+    run history is real work, and how much is empty polling? Give a number.
+
+    ALSO RECORD, without fixing:
+      - any trigger that fires more often than its work arrives
+      - any trigger that exists in code but is not live in production
+      - any agent with no trigger at all (cross-reference AR-13.1's census)
+      - whether a failing agent gets un-scheduled anywhere - a circuit breaker,
+        a disabled flag, a failure-count threshold. If one exists, it means
+        "never executed" may mean "switched off after failing", which changes
+        the triage of all ~51 never-invoked agents.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    ARCHITECTURE.md with the trigger inventory.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm test. Real numbers. Then state the ratio of
+    real-work runs to empty runs across the platform, and name the single
+    worst offender.
+
+    COMMIT (scoped - never `git add -A`)
+    git add test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md ARCHITECTURE.md
+    git commit -m "[FORGE] AR-13.2: complete scheduler and trigger map with real-work ratios"
+    git push origin main
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - test-evidence/SCHEDULER_MAP.md
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-13-3-data-pipeline-audit
+  name: Phase 13.3 Does the data these agents need actually arrive
+  description: An agent with nothing to process is not a broken agent - it is a broken pipeline
+  phase: "13"
+  prompt: |
+    BENAVORA - PHASE 13.3 - UPSTREAM DATA PIPELINE AUDIT
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    NO PRODUCTION BEHAVIOUR CHANGES. Diagnose only.
+
+    AR-13.1 and 13.2 will have found agents that run and process nothing. For
+    every one of those the question is the same: is the agent broken, or has
+    whatever feeds it stopped? This prompt answers that for the whole platform.
+
+    Build test-evidence/DATA_PIPELINE_AUDIT.md. For each major table an agent
+    reads or writes - opportunities, funders, prospects, corporate_prospects,
+    knowledge_base, knowledge_patterns, nonprofits, foundation_directory,
+    donor_discovery_*, applications, submission_queue, agent_queue - record:
+      - total rows, rows added in the last 7 days, last insert timestamp
+      - which agent or ingest job is supposed to populate it
+      - whether that producer has run successfully in the last 7 days
+      - whether the consumer agents find work there
+
+    THE SHAPE TO LOOK FOR: a table that has not received a row in weeks whose
+    consumer agent runs every minute and reports success. That is the
+    ag-29-knowledge-indexer pattern, and if it exists once it probably exists
+    several times.
+
+    SPECIFICALLY RESOLVE ag-29-knowledge-indexer: which table does it index
+    FROM, when did that table last receive content, and what was supposed to
+    put content there? Name the producer and its last successful run. This is
+    the single highest-value answer in this prompt.
+
+    ALSO CHECK the ingest scripts in scripts/ (ingest:bmf, ingest:samgov,
+    enrich:990, enrich:web, enrich:websites, enrich:propublica). Are any of
+    them scheduled? When did each last run? A data platform whose ingest jobs
+    are manual-only will always look like it has broken agents.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    SCHEMA_REGISTRY_v2.md.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm test. Real numbers. Then answer plainly: how many
+    agents on this platform have nothing to work on, and for each, what
+    stopped feeding them?
+
+    COMMIT (scoped - never `git add -A`)
+    git add test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md SCHEMA_REGISTRY_v2.md
+    git commit -m "[FORGE] AR-13.3: upstream data pipeline audit - which agents have nothing to process and why"
+    git push origin main
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - test-evidence/DATA_PIPELINE_AUDIT.md
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-13-4-remediation-plan
+  name: Phase 13.4 Turn three audits into one ranked, costed remediation plan
+  description: The document phases 14 through 19 execute against
+  phase: "13"
+  prompt: |
+    BENAVORA - PHASE 13.4 - THE REMEDIATION PLAN
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    NO PRODUCTION CODE CHANGES. Synthesis only.
+
+    Read all three: test-evidence/AGENT_CENSUS.md, SCHEDULER_MAP.md and
+    DATA_PIPELINE_AUDIT.md. Produce test-evidence/REMEDIATION_PLAN.md.
+
+    GROUP BY ROOT CAUSE, NOT BY AGENT. The 2026-09-17 sweep found five agents
+    behind one missing browser binary; the same compression almost certainly
+    applies again. A plan with 60 line items is a plan nobody can execute; a
+    plan with 12 root causes covering 60 agents is executable tonight.
+
+    For each root cause:
+      - which agents it affects, by id
+      - the evidence, quoted from the audits
+      - the fix, described concretely enough that a build agent could start
+      - the blast radius: what else touches this, what could break
+      - a verification that would PROVE the fix in production - a live row, a
+        live count, not a passing test
+      - effort: small (one file), medium (a subsystem), large (needs a design
+        decision from Reid)
+
+    RANK by agents-recovered-per-unit-effort. Put the highest-leverage first.
+
+    CALL OUT SEPARATELY, because these need Reid rather than a build agent:
+      - anything requiring a product decision (should this agent exist at all?)
+      - anything requiring a credential or account he alone can provide
+      - anything where the honest recommendation is DELETE rather than repair
+
+    BE DIRECT ABOUT DELETION. An agent that has never run, has no invoker, and
+    duplicates a working agent should be deleted, not wired. Say so and name
+    them. Carrying dead agents is why the inventory keeps being confusing.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md and SESSION_STATE.md with the
+    ranked root-cause list.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm test. Real numbers. Then state: how many distinct
+    root causes, how many agents they cover, and how many agents you recommend
+    deleting outright.
+
+    COMMIT (scoped - never `git add -A`)
+    git add test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md
+    git commit -m "[FORGE] AR-13.4: ranked root-cause remediation plan covering every non-operational agent"
+    git push origin main
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - test-evidence/REMEDIATION_PLAN.md
+  max_retries: 2
+  on_fail: halt

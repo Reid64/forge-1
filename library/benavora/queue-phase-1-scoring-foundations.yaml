@@ -1,0 +1,224 @@
+project: benavora
+github_repo: Reid64/benavora
+supabase_project_ref: vbjplpquqxxfbpazyalt
+vercel_project_name: benavora
+domain: benavora.com
+
+governance:
+  - BLUEPRINT_v2.md
+  - SCHEMA_REGISTRY_v2.md
+  - BEHAVIORAL_CONTRACTS.md
+  - STATE_OF_THE_BUILD_2026-09-01.md
+  - STANDING_DIRECTIVES.md
+
+settings:
+  max_retries_per_prompt: 3
+  build_model: claude-sonnet-4-6-20250514
+  review_model: claude-sonnet-4-6-20250514
+  report_model: claude-haiku-4-5-20251001
+  permission_mode: acceptEdits
+  allowed_tools: "*"
+
+prompts:
+
+  - id: p1-001-probability-enum-fix
+    phase: foundation
+    description: "Fix probability score agent_type enum gap (agent initialization fails)"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      BLOCKING DEFECT: probability-scoring-agent.ts references agent_type "ag-15-probability" which does not exist in AgentType enum. This causes agent initialization to fail on BaseAgent.run(). Audit confirms only 1 run ever recorded — proof this agent is completely broken.
+      
+      FIX SCOPE:
+      1. Read src/types/agents.ts and find the AgentType enum definition.
+      2. Verify "ag-15-probability", "success_probability", or similar value does NOT exist.
+      3. Add the missing enum value IF it doesn't exist. Use naming: "ag15_probability_scoring"
+      4. Read src/lib/agents/probability-scoring-agent.ts and src/lib/agents/success-probability.ts.
+      5. Update any hardcoded agentType strings to match the enum value you added.
+      6. Run: pnpm tsc --noEmit | grep -i "probability\|agent_type" to verify no type errors.
+      7. Create Supabase migration (if needed) to add the enum value: ALTER TYPE agent_type ADD VALUE IF NOT EXISTS 'ag15_probability_scoring'
+      8. Test: Create a test run by calling POST /api/agents/success-probability with a real opportunity_id. Verify agent_runs table shows status='completed' and agent_type matches your enum.
+      9. Commit: git add -A; git commit -m "fix(agents): add missing ag15_probability_scoring enum and wire success-probability agent"
+      
+      VERIFICATION:
+      - Enum value exists in src/types/agents.ts
+      - probability-scoring-agent.ts references correct enum value
+      - Type check passes (pnpm tsc --noEmit)
+      - Test run completes without initialization error
+      
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: stop
+
+  - id: p1-002-propensity-framework
+    phase: foundation
+    description: "Complete propensity score framework (98% gap: only 1/49 prospects scored)"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      BLOCKING DEFECT: ag-22-propensity-scoring.ts exists but only 1 of 49 prospects ever scored. Manual audit confirms "STALE, only 1/49 prospects actually scored" — 98% broken. Root causes: (1) agent orphaned (no route), (2) enum broken, (3) no batch logic, (4) cross-org isolation broken.
+      
+      FIX SCOPE:
+      1. Verify p1-001 completed first. If not, this prompt must wait.
+      2. Check if route /api/agents/propensity-scoring exists: ls -la src/app/api/agents/propensity-scoring/route.ts
+      3. If missing, create it: POST /api/agents/propensity-scoring accepting { prospect_ids: string[] } (batch) or { prospect_id: string }
+      4. Read src/lib/agents/ag-22-propensity-scoring.ts in full. Check if it handles bulk scoring or only 1 prospect per run.
+      5. If single-prospect only: create wrapper class PropensityBatchScorer extends BaseAgent that orchestrates bulk runs.
+      6. Check propensity_scores table has proper org_id RLS policy: grep -A 5 "propensity_scores.*org_isolation" src/supabase/migrations/*.sql
+      7. Fix org-scoping if missing: all prospect queries must include WHERE organization_id = (SELECT organization_id FROM profiles WHERE id = auth.uid())
+      8. Test: Create 10 unscored test prospects. Run POST /api/agents/propensity-scoring?batch=true. Verify all 10 now have scores in propensity_scores (10 prospects × 10 factors = 100 rows minimum).
+      9. Commit: git add -A; git commit -m "fix(agents): wire propensity-scoring route and implement batch scoring for all 49 prospects"
+      
+      VERIFICATION:
+      - Route /api/agents/propensity-scoring exists and is callable
+      - PropensityBatchScorer processes all unscored prospects
+      - All 49+ prospects have propensity scores (10 factors each)
+      - Test run shows agent_runs entry with items_processed >= 10
+      - Cross-org isolation verified (org A cannot see org B scores)
+      
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: stop
+    depends_on:
+      - p1-001-probability-enum-fix
+
+  - id: p1-003-relationship-consolidation
+    phase: foundation
+    description: "Consolidate relationship score formula across 3 agents (formula mismatch)"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      BROKEN DESIGN: Three agents compute relationship scores independently with conflicting formulas. Manual audit: "Relationship Score formula DEAD (real formula is entirely different weights/logic)". This causes inconsistent scoring across the platform.
+      
+      FIX SCOPE:
+      1. Read src/lib/intelligence/relationship-scorer.ts in full. Find the computeRelationshipScore() or scoreFromEvents() function.
+      2. Document the actual formula (event weights, decay, any time-based adjustments). This becomes the canonical formula.
+      3. Read src/lib/agents/funder-relationship.ts, src/lib/agents/relationship-builder-agent.ts, and src/lib/agents/relationship-graph-builder-agent.ts.
+      4. For each of the 3 agents: replace all inline relationship score calculation code with calls to the canonical computeRelationshipScore() from relationship-scorer.ts.
+      5. Update BEHAVIORAL_CONTRACTS.md §19 to document the canonical formula with all weights and rules.
+      6. Test: Create 5 test funders with identical event histories. Call all 3 agents. Verify scores match exactly across all 3.
+      7. Run: pnpm test — ensure no relationship-scoring tests break.
+      8. Commit: git add -A; git commit -m "fix(agents): consolidate relationship scoring formula to canonical implementation"
+      
+      VERIFICATION:
+      - Canonical formula documented in BEHAVIORAL_CONTRACTS §19
+      - All 3 agents refactored to use relationship-scorer.ts
+      - Test: 5 funders scored identically by all 3 agents
+      - funder_relationship_scores table has no conflicting scores for same funder
+      
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: stop
+    depends_on:
+      - p1-002-propensity-framework
+
+  - id: p1-004-recursive-learning-cross-org
+    phase: foundation
+    description: "Fix recursive learning cross-org isolation (narratives stuck in org silos)"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      PARTIAL FUNCTIONALITY: org-level learning loop works; cross-org AG-36 (RecursiveLearningAgent) broken. Proven narratives are isolated per organization. Winning narratives from Org A never reach Org B.
+      
+      FIX SCOPE:
+      1. Read src/lib/agents/recursive-learning.ts in full. Find where proven_narratives are inserted.
+      2. Check: proven_narratives table schema has proven_narratives.organization_id NOT NULL? If yes, that's the isolation blocker.
+      3. Design solution: Create proven_narrative_shares junction table (narrative → shareable to parent/sibling orgs).
+      4. Create migration: 
+         CREATE TABLE proven_narrative_shares (
+           id uuid PRIMARY KEY,
+           proven_narrative_id uuid NOT NULL FK,
+           shared_to_organization_id uuid NOT NULL FK,
+           shared_by_organization_id uuid NOT NULL FK,
+           shared_at timestamptz DEFAULT now(),
+           created_by uuid NOT NULL,
+           UNIQUE(proven_narrative_id, shared_to_organization_id)
+         );
+         Enable RLS: organization_id = shared_to_organization_id
+      5. Update recursive-learning.ts: On award, check organization hierarchy (parent, sibling) and auto-create proven_narrative_shares rows.
+      6. Update draft-generation and narrative-drafting-agent to query proven_narratives UNION with shared narratives from parents/siblings.
+      7. Test: Award an application in Org A. Verify proven_narrative appears in Org B's dossier within 2 minutes.
+      8. Commit: git add -A; git commit -m "fix(agents): implement cross-org narrative sharing in recursive learning"
+      
+      VERIFICATION:
+      - proven_narrative_shares table created with proper RLS
+      - recursive-learning.ts creates shares on award
+      - draft-generation queries include shared narratives
+      - Test: Award in Org A → narrative visible in Org B
+      - No cross-org data leakage (RLS verified)
+      
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: stop
+    depends_on:
+      - p1-003-relationship-consolidation
+
+  - id: p1-005-outcome-learning-loop
+    phase: foundation
+    description: "Wire outcome recording to recursive learning (outcomes never trigger learning)"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      BROKEN PIPELINE: Applications marked AWARDED but recursive-learning.ts never fires. Learning never happens. Proven narratives never populate from successful outcomes.
+      
+      FIX SCOPE:
+      1. Find the outcomes table: grep -A 10 "CREATE TABLE outcomes" src/supabase/migrations/*.sql
+      2. Check schema: does it have result column with ENUM including 'awarded'?
+      3. Find outcome recording endpoint: search for POST /api/outcomes or /api/applications/*/outcome
+      4. If missing, create it: POST /api/outcomes accepting { application_id, result: 'awarded'|'denied'|'partial', funder_feedback?, amount_awarded? }
+      5. In the outcomes endpoint, add trigger: if result === 'awarded', call RecursiveLearningAgent.run({ outcome_id })
+      6. RecursiveLearningAgent should: read outcome, application, dossier context; extract key narrative elements; store in proven_narratives (or proven_narrative_shares if p1-004 done); log to agent_runs.
+      7. Test: Mark 1 application as AWARDED. Verify agent_runs shows RecursiveLearningAgent executed. Verify proven_narratives populated.
+      8. Create admin audit route: GET /api/admin/recursive-learning-audit to view when learning fired, what was learned.
+      9. Commit: git add -A; git commit -m "fix(agents): wire outcome recording to recursive learning trigger"
+      
+      VERIFICATION:
+      - POST /api/outcomes endpoint exists and accepts result
+      - Outcome='awarded' triggers RecursiveLearningAgent
+      - agent_runs table shows execution
+      - proven_narratives populated from test award
+      - Admin audit route functional
+      
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: stop
+    depends_on:
+      - p1-004-recursive-learning-cross-org
+
+  - id: p1-verify-all-gates
+    phase: verify
+    description: "Verify all 5 fixes deployed, all gates passed, no regressions"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      VERIFICATION CHECKLIST:
+      1. Enum fixes: pnpm tsc --noEmit | grep -i "probability\|propensity\|agent_type" — zero errors
+      2. Probability agent: POST /api/agents/success-probability with real opportunity_id → agent_runs shows completed
+      3. Propensity agent: POST /api/agents/propensity-scoring?batch=true → 10+ prospects scored (100+ rows in propensity_scores)
+      4. Relationship: Call all 3 relationship agents on same funder → scores match exactly
+      5. Recursive learning: Mark 1 application AWARDED → agent_runs shows RecursiveLearningAgent, proven_narratives populated
+      6. Cross-org: Create 2 test orgs, award in Org A, verify narrative visible in Org B
+      7. Full test suite: pnpm test:unit — must pass all tests, no regressions
+      8. Deployment: npx vercel deploy --prod — must succeed, health check returns 200
+      
+      Update STATE_OF_THE_BUILD.md with completion status:
+      - Section: PHASE 1 FIXES
+      - List all 5 fixes with "✅ VERIFIED" status
+      - Record gate results: 5/5 prompts passed
+      - Update "NEXT SESSION PRIORITIES" with Phase 2 scope
+      
+      Commit: git add -A; git commit -m "docs: Phase 1 scoring foundations repair verified complete, all 5 fixes deployed"
+      
+    gates:
+      - type: compile
+      - type: file_exists
+        files: [STATE_OF_THE_BUILD.md]
+    max_retries: 2
+    on_fail: continue
+    depends_on:
+      - p1-005-outcome-learning-loop

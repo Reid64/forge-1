@@ -1,0 +1,56 @@
+project: benavora
+governance:
+- BLUEPRINT_v2.md
+- SCHEMA_REGISTRY_v2.md
+- AGENTS_v2.md
+- FEATURE_REGISTRY_v2.md
+- STATE_OF_THE_BUILD.md
+- AUTONOMOUS_PLATFORM_VISION.md
+- STANDING_DIRECTIVES.md
+prompts:
+- id: cc-001
+  name: Governance sync and Command Center platform-owner redesign
+  prompt: |
+    First: sync all governance docs: $repo = 'C:\Users\manag\Documents\benavora'; $forge = 'C:\Users\manag\Documents\FORGE\projects\benavora'; Get-ChildItem $repo -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName (Join-Path $forge $_.Name) -Force }
+
+    Read src/app/(dashboard)/command-center/page.tsx in full.
+    Read src/app/(dashboard)/dashboard/page.tsx for inline style patterns.
+    CRITICAL: Inline style={{}} only. Hardcoded hex values. Canvas #D6E4F0.
+
+    The Command Center must show PLATFORM-WIDE data across all tenants, not tenant-scoped data. This page is for Reid as platform owner.
+
+    Rewrite src/app/(dashboard)/command-center/page.tsx completely.
+
+    Data queries (NO org_id filter — platform wide):
+    Total orgs onboarded, active subscriptions, total opportunities all orgs, total applications all orgs, auto-generated drafts pending review all orgs, agent runs last 24h count and items_processed sum, agent decisions last 24h count, top 5 orgs by agent_decisions last 7 days, recent 10 agent runs all orgs, nonprofits enriched count.
+
+    Layout canvas #D6E4F0 padding 32px:
+    Header: Platform Command Center H1 28px bold #1A2B3C, LiveClock right. Redirect non-owners to /dashboard.
+    Row 1: 5 stat cards (Total Orgs #1A2B3C band, Active Subscriptions #10B981, Total Opportunities #0EA5E9, Total Applications #8B5CF6, AI Drafts Pending #F59E0B).
+    Row 2: 3 columns: AI Pipeline Status (last 5 agent runs with status badges), Data Intelligence Status (enrichment counts with progress bars), Most Active Orgs (top 5 by decisions).
+    Row 3: Admin Quick Actions blue card #0077B6 with button grid.
+    Row 4: Recent Agent Runs table all orgs.
+
+    Access check: if profile.role not in owner/super_admin redirect to /dashboard.
+
+    Run pnpm tsc --noEmit. Run pnpm build, fix all errors.
+    Commit: git add -A; git commit -m 'feat: Command Center platform-owner redesign all-org data fintech aesthetic'; git push.
+
+- id: cc-002
+  name: Intelligence and admin pages inline style rewrite plus deploy
+  prompt: |
+    Read src/app/(dashboard)/intelligence/page.tsx in full.
+    Read src/app/(dashboard)/intelligence/reputation/page.tsx in full.
+    Read src/app/(dashboard)/intelligence/recommendations/page.tsx in full.
+    Read src/app/(dashboard)/admin/monitor/page.tsx in full.
+    CRITICAL: Inline style={{}} only. Hardcoded hex values. Canvas #D6E4F0.
+
+    Rewrite intelligence index: grid of module cards with colored icons, completeness bars, alert count badges.
+    Rewrite reputation page: severity filter tabs, alert cards with left accent bars (CRITICAL=#DC2626, HIGH=#F59E0B, MEDIUM=#0EA5E9, LOW=#6B7280), Mark Read buttons.
+    Rewrite recommendations page: urgency bars (urgent=#DC2626, normal=#0EA5E9, low=#6B7280), Mark Done and Dismiss buttons.
+    Rewrite admin monitor: agent runs table with status badges (completed=#10B981, failed=#DC2626, running=#F59E0B), auto-refresh every 30s.
+
+    Run pnpm tsc --noEmit. Run pnpm build, fix all errors.
+    git add -A; git commit -m 'feat: intelligence and admin pages inline style rewrite'; git push.
+    npx vercel deploy --prod.
+    Report the production URL.

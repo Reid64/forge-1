@@ -1,0 +1,436 @@
+governance:
+- STATE_OF_THE_BUILD.md
+- SESSION_STATE.md
+- BLUEPRINT_v2.md
+project: benavora
+settings:
+  max_retries_per_prompt: 2
+  permission_mode: acceptEdits
+prompts:
+- id: ar-20-1-route-census
+  name: Phase 20.1 Ask the browser, not the repository
+  description: Drive every one of the 176 routes in a real authenticated browser and record what actually renders
+  phase: "20"
+  prompt: |
+    BENAVORA - PHASE 20.1 - LIVE ROUTE CENSUS
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    AR-13 through AR-19 repaired the engine. NOT ONE of their 31 prompts
+    touched the product surface. Grep across all seven of those queue files
+    returns zero hits for src/components, zero for onboard, zero for billing.
+    The customer-facing application has never been audited.
+
+    MEASURED ON DISK, 2026-09-18:
+      176  src/app/**/page.tsx
+      354  src/app/api/**/route.ts
+      176  src/components/**/*.tsx
+       25  distinct routes ever visited by the entire e2e suite - 14 percent
+        0  loading.tsx
+        0  error.tsx
+        0  not-found.tsx
+
+    Verify every one of those figures yourself before using it. If any is
+    wrong, the correction is the first line of your report.
+
+    AG-29 taught this platform that a component can run 63,941 times and do
+    nothing. The UI equivalent is a route that returns 200 with an empty
+    shell. THE REPOSITORY CANNOT TELL YOU WHICH ROUTES WORK. Only a browser
+    can. That is what this prompt does.
+
+    BUILD scripts/audit/route-census.mjs using Playwright with the existing
+    storageState auth from playwright.config.ts, against a local production
+    build (pnpm run build && pnpm start) - NOT the dev server, whose error
+    overlay masks exactly the failures you are hunting.
+
+    PER ROUTE RECORD:
+      - HTTP status, and final URL after any redirect - a route that silently
+        redirects to /login under a valid session is a broken route
+      - VERDICT: RENDERS / EMPTY SHELL / CRASHES / REDIRECTS / 404 / TIMEOUT
+      - EMPTY SHELL is the verdict that matters most: chrome, nav and headings
+        present, zero rows or records or content in the main region. Define it
+        measurably - visible text length in <main> below a stated threshold
+        with no table rows, list items or cards - and state the threshold.
+      - every console error and unhandled rejection, verbatim
+      - every network request that returned 4xx or 5xx, with its URL
+      - whether a loading state was ever shown, and for how long
+      - time to first meaningful content
+      - a full-page screenshot to test-evidence/route-census/<slug>.png
+
+    DYNAMIC ROUTES. Routes with [id] or [token] need a real id. Pull real ids
+    from the database for the seeded test org. Where no row exists to visit
+    the route with, that is the finding - report NO DATA TO RENDER and say so;
+    do not fabricate a uuid and report a 404 as a defect.
+
+    AUTHENTICATE AS THREE ROLES, not one, and record the verdict per role.
+    A page that renders for an owner and crashes for a member is a defect the
+    single-role audits of the last six months could not see. Read the role
+    model from middleware.ts. DO NOT MODIFY middleware.ts - it is under a
+    standing full-replacement-only rule and requires Reid's explicit approval.
+
+    WRITE test-evidence/ROUTE_CENSUS.md: the per-route table, and up front the
+    counts per verdict per role. NO FIXES. Findings only.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    BLUEPRINT_v2.md with the verdict counts.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm test. Real numbers. Then state: of 176 routes, how
+    many RENDER with real content for each role, how many are EMPTY SHELL, how
+    many CRASH. Name every crashing route. If the honest answer is that a
+    large fraction of this application does not work, say that plainly in the
+    first sentence.
+
+    COMMIT (scoped - never `git add -A`)
+    git add scripts/audit test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md
+    git commit -m "[FORGE] AR-20.1: live route census - 176 routes driven in a real browser across three roles, per-route verdict recorded"
+    git push origin main
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - scripts/audit/route-census.mjs
+    - test-evidence/ROUTE_CENSUS.md
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-20-2-data-truth
+  name: Phase 20.2 Is anything on screen real
+  description: Law 4 says zero mocks - 74 files carry hardcoded arrays and 20 dashboard pages make no data call at all
+  phase: "20"
+  prompt: |
+    BENAVORA - PHASE 20.2 - DATA TRUTH ON THE SURFACE
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Law 4 of the Six Laws: real API calls, real tables, company-scoped, ZERO
+    mocks. Nothing has ever verified it.
+
+    MEASURED ON DISK, 2026-09-18 - verify each before using it:
+      20  pages under (dashboard) containing no fetch, no createClient, no
+          useQuery, no useSWR and no supabase reference anywhere in the file
+      74  files under src/app or src/components declaring a hardcoded
+          `const UPPERCASE = [` array
+      51  page files containing the string "placeholder"
+       2  page files saying "coming soon"
+       3  files in all of src/lib and src/app referencing plan_tier,
+          entitlement, subscription_status or usage_limit
+
+    THE 20 NO-FETCH DASHBOARD PAGES INCLUDE detail routes that must show
+    real records: applications/[id], funders/[id], opportunities/[id],
+    contacts/[id], foundations/[id], donor-discovery/prospects/[id],
+    knowledge-base/narratives/[id], outreach/campaigns/[id].
+
+    DO NOT ASSUME THESE ARE STUBS. A page that delegates to a child client
+    component is a legitimate pattern. TRACE EACH ONE and classify:
+      - DELEGATES: fetches through a child component. Not a defect. Name the
+        child and confirm the child really fetches.
+      - SERVER-RENDERED: fetches via a server action or direct DB call your
+        grep pattern missed. Not a defect.
+      - STUB: renders static markup. Defect.
+      - DEAD: renders nothing meaningful at all. Defect.
+    Cross-reference every classification against the AR-20.1 census verdict
+    for the same route. A page you classify DELEGATES that the census called
+    EMPTY SHELL is the interesting case - the fetch exists and returns
+    nothing. Investigate those specifically and name the reason.
+
+    THE 74 HARDCODED ARRAYS. Separate legitimate constants - enum labels,
+    nav definitions, form option lists, status colour maps - from FAKE
+    BUSINESS DATA presented to the customer as their own: sample funders,
+    example grants, illustrative metrics, seeded chart series. Count each
+    category. Only the second is a defect. Report both counts so the number
+    cannot be inflated later.
+
+    TENANCY ON THE SURFACE. For every dashboard route that displays records,
+    verify the query is scoped to the session's organization_id and that the
+    org id comes from the SESSION, never from a URL parameter or request body.
+    Law 2. Any route where a customer could read another organization's data
+    by changing an id is the highest-severity finding available on this
+    platform - if you find one, it goes in the first line of the report and in
+    the first line of your final summary.
+
+    NOTE ON SCHEMA VOCABULARY: the Six Laws as written say company_id. This
+    platform's column is organization_id. Use organization_id.
+
+    WRITE test-evidence/SURFACE_DATA_TRUTH.md. NO FIXES.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    BLUEPRINT_v2.md.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm test. Real numbers. Then state: how many dashboard
+    routes show real org-scoped data, how many show fabricated data, how many
+    show nothing, and whether any cross-tenant read is possible.
+
+    COMMIT (scoped - never `git add -A`)
+    git add test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md
+    git commit -m "[FORGE] AR-20.2: surface data-truth audit - stub vs delegating vs fabricated, and session-scoped tenancy verified per route"
+    git push origin main
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - test-evidence/SURFACE_DATA_TRUTH.md
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-20-3-design-system-audit
+  name: Phase 20.3 There is a design system and almost nothing uses it
+  description: 17 primitives exist; 198 of 401 files hardcode hex colors and 169 use raw buttons
+  phase: "20"
+  prompt: |
+    BENAVORA - PHASE 20.3 - DESIGN SYSTEM AUDIT
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    This platform HAS a design system. It is 17 primitives in
+    src/components/ui - Button, Input, Select, Card, Badge, Table, Modal,
+    EmptyState, LoadingCard, LoadingSpinner, ErrorBoundary and others. It is
+    largely bypassed.
+
+    MEASURED ON DISK, 2026-09-18, across 401 tsx files in src/app and
+    src/components - verify each figure before using it:
+      178  import from @/components/ui
+      169  use a raw <button> element
+       86  use a raw <input>
+       38  use a raw <select>
+      198  contain a hardcoded #rrggbb hex value
+       42  use an arbitrary Tailwind colour, bg-[#... or text-[#...
+      130  use any responsive breakpoint - meaning 271 do not
+        0  loading.tsx, error.tsx or not-found.tsx exist anywhere
+
+    198 of 401 files defining colour inline is why this product looks
+    assembled rather than designed. It is not a taste problem. It is the
+    absence of an enforced token layer, and it is fixable mechanically.
+
+    THIS PROMPT MEASURES. It changes no styling.
+
+    WRITE test-evidence/DESIGN_SYSTEM_AUDIT.md containing:
+
+    1. THE REAL TOKEN INVENTORY. Extract every distinct colour value in use
+       across all 401 files - hex, arbitrary Tailwind, and named Tailwind
+       utility. Cluster near-duplicates. How many distinct greys are in use
+       where there should be one ramp? How many blues? Report the count. This
+       number is the argument for the token layer AR-21 builds.
+    2. TYPOGRAPHY: every distinct font size, weight and line height in use,
+       and how many are off any consistent scale.
+    3. SPACING: the distribution of padding and margin values, and how many
+       fall off a 4px grid.
+    4. PRIMITIVE COVERAGE: per primitive, how many files use it versus how
+       many hand-roll the same element. Which primitives are missing entirely
+       for patterns that recur - a page header, a stat tile, a data table
+       toolbar, a form row, a tab bar, a drawer, a toast.
+    5. VIOLATION LEDGER: every file with a hardcoded colour, a raw
+       interactive element, or an off-scale value, as a machine-readable JSON
+       list beside the markdown. AR-21's gates read that JSON as their
+       starting baseline, so its shape matters - define it and state it.
+    6. THE TEN WORST FILES by combined violation count, named.
+    7. RESPONSIVE: which of the 176 routes are unusable below 768px. Take
+       real 375px screenshots via Playwright for the top 20 routes by
+       importance and look at them. Report what actually breaks - overflow,
+       clipped tables, unreachable controls - not a lint count.
+    8. STATE COVERAGE: per route, does it have a designed loading state, a
+       designed empty state, and a designed error state. Zero error.tsx and
+       zero loading.tsx exist, so the honest baseline is near zero; report
+       what is handled inline instead.
+
+    DO NOT PROPOSE A VISUAL DIRECTION HERE. AR-21.2 owns that, and it needs
+    this inventory to propose against.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    BLUEPRINT_v2.md with the violation counts and the distinct-colour count.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm test. Real numbers. Then state the distinct-colour
+    count, the total violation count, the ten worst files, and how many of the
+    176 routes have a designed loading, empty AND error state today.
+
+    COMMIT (scoped - never `git add -A`)
+    git add test-evidence scripts/audit STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md
+    git commit -m "[FORGE] AR-20.3: design system audit - real token inventory, violation ledger as JSON, responsive and state coverage"
+    git push origin main
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - test-evidence/DESIGN_SYSTEM_AUDIT.md
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-20-4-billing-entitlement-audit
+  name: Phase 20.4 What can a customer do without paying
+  description: Three files in the entire application reference a plan tier or a usage limit
+  phase: "20"
+  prompt: |
+    BENAVORA - PHASE 20.4 - BILLING AND ENTITLEMENT AUDIT
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    MEASURED ON DISK, 2026-09-18 - verify before using:
+      Stripe webhook at src/app/api/webhooks/stripe/route.ts DOES verify the
+      signature with STRIPE_WEBHOOK_SECRET before processing. That part is
+      correct and you should confirm it rather than re-engineer it.
+
+      THREE files in all of src/lib and src/app reference plan_tier,
+      entitlement, subscription_status or usage_limit.
+
+      TWO separate billing pages exist: (dashboard)/billing/page.tsx at 614
+      lines with 4 data calls, and (dashboard)/settings/billing/page.tsx with
+      none. One of those is probably dead. Determine which.
+
+    THREE FILES OF ENTITLEMENT LOGIC ACROSS A MULTI-TENANT SAAS MEANS THE
+    PRODUCT PROBABLY DOES NOT ENFORCE WHAT IT SELLS. Establish whether that is
+    true with evidence, not inference.
+
+    TRACE THE FULL MONEY PATH AND WRITE test-evidence/BILLING_AUDIT.md:
+
+    1. WHAT IS SOLD. Read the pricing page and the plan definitions. Enumerate
+       every plan, its price, and every limit or feature it claims - seats,
+       applications per month, AutoApply submissions, agent runs, storage,
+       exports. Quote the marketing copy. The promise is what the code must
+       enforce.
+    2. WHAT IS ENFORCED. For every claimed limit, find the code that enforces
+       it. For each: ENFORCED / PARTIAL / NOT ENFORCED, with the file and line
+       or the explicit statement that no such code exists. src/lib/autoapply/
+       usage-meter.ts exists - determine whether anything calls it, and
+       whether exceeding the meter actually blocks anything.
+    3. WHAT AN UNPAID ORG CAN DO. Empirically. Create or identify a test org
+       with no active subscription and drive the product as that org with
+       Playwright. Which paid features are reachable? Record it route by
+       route. This is a revenue-leak measurement and it is the core deliverable
+       of this prompt.
+    4. SUBSCRIPTION STATE TRUTH. What does the webhook write on
+       checkout.session.completed, customer.subscription.updated and
+       customer.subscription.deleted? Does any read path consume it? A webhook
+       that writes a row nothing reads is the ai_usage_log defect again in the
+       billing layer - check for exactly that shape.
+    5. LIFECYCLE HOLES. Trial expiry, failed payment, dunning, cancellation,
+       downgrade with data over the new limit, reactivation. Which are
+       handled, which are absent.
+    6. THE TWO BILLING PAGES. Which is routed to, which is dead, what each
+       reads.
+
+    DO NOT CREATE A LIVE STRIPE SUBSCRIPTION AND DO NOT PROCESS A REAL
+    PAYMENT. Use Stripe test mode only. Never place real Stripe live keys in
+    any test, fixture, log or report; the same rule that keeps
+    SUPABASE_SERVICE_ROLE_KEY out of CI applies here. Redact every secret from
+    every artifact this prompt produces.
+
+    NO FIXES. AR-23 fixes.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    BLUEPRINT_v2.md.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm test. Real numbers. Then state, in one sentence
+    each: how many sold limits are enforced out of how many claimed, and what
+    a completely unpaid organization can do in this product today.
+
+    COMMIT (scoped - never `git add -A`)
+    git add test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md
+    git commit -m "[FORGE] AR-20.4: billing and entitlement audit - sold-versus-enforced per limit, measured empirically as an unpaid org"
+    git push origin main
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - test-evidence/BILLING_AUDIT.md
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-20-5-surface-remediation-plan
+  name: Phase 20.5 One ranked plan, and an honest statement of what cannot be automated
+  description: Consolidates four audits and names the parts only Reid can judge
+  phase: "20"
+  prompt: |
+    BENAVORA - PHASE 20.5 - SURFACE REMEDIATION PLAN
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Read all four: test-evidence/ROUTE_CENSUS.md,
+    test-evidence/SURFACE_DATA_TRUTH.md,
+    test-evidence/DESIGN_SYSTEM_AUDIT.md, test-evidence/BILLING_AUDIT.md.
+
+    WRITE test-evidence/SURFACE_REMEDIATION_PLAN.md.
+
+    RANK EVERY FINDING on two axes only: does it stop a paying customer
+    getting value, and does it leak data or money. Nothing else outranks
+    those. A beautiful page showing another organization's records is worse
+    than an ugly page showing the right ones.
+
+    THE RANKED TIERS:
+      P0  cross-tenant data exposure; a crashing route on a core path; a
+          fabricated number a customer would act on; revenue leak
+      P1  empty shells and stubs on core paths; unenforced sold limits;
+          missing error and loading states on paths that fail
+      P2  design system violations; responsive breakage; marketing surface
+      P3  polish
+
+    FOR EACH ITEM: the evidence file and section it came from, the routes or
+    files affected, and which of AR-21, AR-22 or AR-23 owns it. Every P0 and
+    P1 must map to a named prompt in one of those three queues. IF AN ITEM
+    MAPS TO NO PROMPT, SAY SO EXPLICITLY IN ITS OWN SECTION HEADED "NOT
+    COVERED BY THE CURRENT PROGRAMME" - an unowned P0 that is silently
+    dropped is how this project accumulated six months of untrustworthy
+    counts.
+
+    RECONCILE AGAINST THE ENGINE. AR-13 through AR-19 fixed agents. Where a
+    surface defect is actually an engine defect showing through - a page
+    correctly rendering a degenerate score AR-17 fixed, an empty list because
+    AR-14's pipeline produced nothing - say so and do not schedule UI work for
+    it. Distinguishing these two is the most useful thing this prompt does.
+
+    THEN WRITE THE SECTION THIS PROGRAMME HAS NEVER HAD, headed "WHAT A GATE
+    CANNOT VERIFY":
+      - A script can enforce that a component uses a design token. NO SCRIPT
+        CAN DECIDE WHETHER THE RESULT LOOKS GOOD. Say that plainly.
+      - Law 6 of the Six Laws requires a human confirming in a browser.
+        Automated verification cannot satisfy it. List exactly which routes
+        Reid must look at himself, in priority order, with what to check on
+        each. Keep that list under 20 routes - a list of 176 is a list nobody
+        uses.
+      - Name every claim in this programme that will still rest on an agent's
+        assertion rather than a measurement when AR-23 finishes.
+
+    Produce a screenshot contact sheet from AR-20.1's captures -
+    test-evidence/route-census/CONTACT_SHEET.html, a single page of every
+    route screenshot with its verdict as a caption - so Reid can see the whole
+    product surface at once instead of reading a table about it.
+
+    NO CODE CHANGES.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    BLUEPRINT_v2.md with the P0/P1/P2/P3 counts and the not-covered list.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm test. Real numbers. Then state the counts per tier,
+    how many P0s exist, whether any P0 is unowned, and the number of routes on
+    Reid's must-look-at list.
+
+    COMMIT (scoped - never `git add -A`)
+    git add test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md
+    git commit -m "[FORGE] AR-20.5: ranked surface remediation plan, engine-versus-surface reconciliation, and an explicit list of what no gate can verify"
+    git push origin main
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - test-evidence/SURFACE_REMEDIATION_PLAN.md
+    - test-evidence/route-census/CONTACT_SHEET.html
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt

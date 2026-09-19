@@ -1,0 +1,25 @@
+project: benavora
+governance:
+- BLUEPRINT_v2.md
+- STATE_OF_THE_BUILD.md
+- STANDING_DIRECTIVES.md
+prompts:
+- id: perf-001
+  name: Governance sync and bundle optimization plus caching
+  prompt: |
+    First: sync all governance docs: $repo = 'C:\Users\manag\Documents\benavora'; $forge = 'C:\Users\manag\Documents\FORGE\projects\benavora'; Get-ChildItem $repo -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName (Join-Path $forge $_.Name) -Force }
+
+    Read next.config.js or next.config.ts in full. Read package.json in full.
+
+    Install @next/bundle-analyzer: pnpm add -D @next/bundle-analyzer. Add bundleAnalyzer wrapper to next.config.
+    Identify any heavy chart libraries or large page-specific components. Apply dynamic import() with ssr:false for recharts, d3, or plotly if used on dashboard pages only.
+    Remove unused imports found via analyzer.
+    Add to next.config: images.domains for any external image sources.
+    Create vercel.json with security headers (X-Content-Type-Options nosniff, X-Frame-Options DENY, X-XSS-Protection) and Cache-Control no-store for /api routes.
+    Add revalidate 3600 to marketing page.
+    For dashboard pages: review all queries, reduce select() to only needed columns, add .limit() to unbounded queries, fix any N+1 patterns found.
+
+    Run pnpm build, verify no errors, verify bundle size noted in commit message.
+    git add -A; git commit -m 'perf: bundle splitting dynamic imports security headers query optimization'; git push.
+    npx vercel deploy --prod.
+    Report the production URL.

@@ -1,0 +1,75 @@
+project: benavora
+governance:
+- BLUEPRINT_v2.md
+- SCHEMA_REGISTRY_v2.md
+- AGENTS_v2.md
+- AUTONOMOUS_PLATFORM_VISION.md
+- FEATURE_REGISTRY_v2.md
+- STATE_OF_THE_BUILD.md
+- STANDING_DIRECTIVES.md
+prompts:
+- id: gln-001
+  name: Governance sync and global learning network schema
+  prompt: |
+    First sync governance docs: $repo = 'C:\Users\manag\Documents\benavora'; $forge = 'C:\Users\manag\Documents\FORGE\projects\benavora'; Get-ChildItem $repo -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName (Join-Path $forge $_.Name) -Force }
+
+    Read AUTONOMOUS_PLATFORM_VISION.md section on Global Learning Network.
+    Read SCHEMA_REGISTRY_v2.md for knowledge_patterns and intelligence_funded_proposals tables.
+
+    Create migration src/supabase/migrations/[NEXT]_global_learning_network.sql:
+    CREATE TABLE IF NOT EXISTS platform_learning_patterns (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), pattern_type text NOT NULL CHECK (pattern_type IN ('narrative_language','budget_structure','keyword','timing','attachment_type','funder_preference','ntee_success')), funder_category text, ntee_code text, pattern_content text NOT NULL, success_rate numeric, sample_count integer DEFAULT 1, avg_award_amount numeric, winning_examples jsonb DEFAULT '[]', last_updated timestamptz DEFAULT now(), created_at timestamptz DEFAULT now());
+    CREATE INDEX idx_learning_patterns_type ON platform_learning_patterns(pattern_type, funder_category, ntee_code);
+    COMMENT ON TABLE platform_learning_patterns IS 'Platform-wide anonymized learning patterns. No org_id -- shared across all tenants. RLS disabled intentionally.';
+
+    CREATE TABLE IF NOT EXISTS org_learning_contributions (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, outcome_id uuid REFERENCES outcomes(id), contribution_type text NOT NULL, pattern_id uuid REFERENCES platform_learning_patterns(id), anonymized_at timestamptz DEFAULT now());
+
+    Apply via Supabase SQL editor. Verify tables exist.
+    Commit: git add -A; git commit -m 'feat: global learning network schema -- platform_learning_patterns anonymized cross-org'; git push.
+
+- id: gln-002
+  name: Learning network aggregator agent AG-36
+  prompt: |
+    Read src/lib/agents/autonomous-base.ts in full.
+    Read AUTONOMOUS_PLATFORM_VISION.md section on Global Learning Network.
+
+    Create src/lib/agents/learning-network-aggregator-agent.ts. This is AG-36. It runs weekly and aggregates anonymized successful grant patterns across all platform orgs into platform_learning_patterns.
+
+    run(triggerSource):
+    1. startRun (this agent uses a platform-level supabase client with service role -- no org scoping).
+    2. Query all awarded outcomes from last 90 days across all orgs (no org filter -- service role required).
+    3. For each awarded outcome: load the associated application draft_content. Anonymize: strip org name, location, staff names, contact info. Extract patterns:
+       - Narrative language: most frequent impactful phrases (use Claude to extract top 10 phrases that correlate with award)
+       - Budget structure: ratio of personnel/programs/admin
+       - Keywords: extract grant-specific keywords from narrative
+       - Timing: days before deadline submitted
+       - Attachment types: which documents were attached
+    4. For each pattern: upsert into platform_learning_patterns (match on pattern_type + funder_category + ntee_code, increment sample_count, recalculate success_rate, update winning_examples with anonymized excerpt max 200 chars).
+    5. Insert org_learning_contributions record linking the org contribution (anonymized -- no raw content stored).
+    6. logDecision at platform level (use a system org_id or null) for each pattern updated.
+    7. completeRun summary: outcomesAnalyzed, patternsUpdated, patternsCreated.
+
+    This file must be at least 220 lines. Run pnpm tsc --noEmit, fix errors.
+    Commit: git add -A; git commit -m 'feat: AG-36 learning network aggregator -- anonymized cross-org pattern extraction'; git push.
+
+- id: gln-003
+  name: Learning network integration into draft generation plus deploy
+  prompt: |
+    Read src/lib/agents/draft-generation-agent.ts in full.
+    Read src/lib/agents/learning-network-aggregator-agent.ts in full.
+
+    Upgrade draft-generation-agent.ts to pull from platform_learning_patterns before generating drafts:
+    1. After loading KB and twin data, query platform_learning_patterns WHERE funder_category matches opportunity funder type AND (ntee_code matches org NTEE OR ntee_code IS NULL) ORDER BY success_rate DESC LIMIT 10.
+    2. If patterns found: inject as additional context in Claude prompt: PLATFORM LEARNING PATTERNS (from anonymized successful grants): [list patterns with success rates].
+    3. Track patterns_applied count in the draft output. Add platform_patterns_applied integer column to applications table.
+    4. Adjust confidence score upward by 5 points for each high-confidence pattern applied (max +20 total).
+
+    Create src/app/(dashboard)/intelligence/learning-network/page.tsx:
+    Header: Platform Learning Network H1, subtitle Anonymized intelligence from successful grants across the platform.
+    Stats cards: Total Patterns, Patterns Applied to Your Drafts, Your Contributions, Network Effect Score.
+    Pattern table: pattern_type badge, funder_category, ntee_code, success_rate bar, sample_count, last_updated.
+
+    Update FEATURE_REGISTRY_v2.md feature 223 status to BUILT.
+    Run pnpm tsc --noEmit. Run pnpm build, fix errors.
+    git add -A; git commit -m 'feat: learning network integrated into draft generation + UI page'; git push.
+    npx vercel deploy --prod.
+    Report the production URL.

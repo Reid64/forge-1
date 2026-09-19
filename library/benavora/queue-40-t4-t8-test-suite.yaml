@@ -1,0 +1,160 @@
+project: benavora
+github_repo: Reid64/benavora
+supabase_project_ref: vbjplpquqxxfbpazyalt
+vercel_project_name: benavora
+domain: benavora.com
+
+governance:
+  - STANDING_DIRECTIVES.md
+  - TESTING_v2.md
+  - FEATURE_REGISTRY_v2.md
+  - BEHAVIORAL_CONTRACTS.md
+
+settings:
+  max_retries_per_prompt: 3
+  build_model: claude-sonnet-4-6-20250514
+  review_model: claude-sonnet-4-6-20250514
+  report_model: claude-haiku-4-5-20251001
+  permission_mode: acceptEdits
+  allowed_tools: "*"
+  review_frequency: 5
+  governance_check_frequency: 10
+
+prompts:
+
+  - id: t4-e2e-001
+    phase: build
+    description: "T4 - Real Playwright E2E suite for critical user paths"
+    prompt: |
+      Read TESTING_v2.md in full and STANDING_DIRECTIVES.md DIRECTIVE-019.
+      Read C:\Users\manag\Documents\benavora\.env.test to find the real beta test account credentials (beta1@benavora-test.com / BetaTest2026) and the real Faith Foundation org id b1ab7402-dfc2-4712-869f-70ea3566cc1d if referenced elsewhere in existing tests under src\__tests__\integration for the correct pattern to authenticate a Playwright session against this app.
+
+      Create C:\Users\manag\Documents\benavora\e2e\critical-paths.spec.ts using @playwright/test (install if not present: pnpm add -D @playwright/test --break-system-packages is not applicable on Windows, use pnpm add -D @playwright/test).
+
+      Cover these real flows against a real local dev server (pnpm dev, wait for ready on port 3000):
+      1. Login with beta1@benavora-test.com / BetaTest2026, confirm redirect to /dashboard.
+      2. Navigate to /opportunities, confirm the real opportunities list renders (non-empty, given Faith Foundation has real seeded data).
+      3. Open /applications/new, fill minimum required fields, submit, confirm a new row appears in /applications/list.
+      4. Navigate to /autoapply, confirm the readiness panel renders without a client-side error (this exercises checkOrgReadiness, the exact function that was broken earlier this project).
+      5. Navigate to /funders/[id]/relationship for a real funder id pulled from the funders table, confirm the page loads without 404 or 500.
+
+      Each test must assert on real rendered content (text, testids), not just HTTP status. Add data-testid attributes to the relevant components if none exist yet — read each target page file first before adding.
+
+      INCREMENTAL TEST CHECKPOINT: after writing each spec, run npx playwright test e2e/critical-paths.spec.ts --project=chromium and confirm it passes against the real local dev server before writing the next spec.
+    expected_outputs:
+      - e2e/critical-paths.spec.ts
+      - playwright.config.ts
+    gates:
+      - type: compile
+      - type: file_exists
+        files: [e2e/critical-paths.spec.ts]
+    max_retries: 3
+    on_fail: halt
+
+  - id: t5-visual-001
+    phase: build
+    description: "T5 - Visual regression harness for key dashboard pages"
+    prompt: |
+      Read e2e/critical-paths.spec.ts written in t4-e2e-001.
+
+      Create C:\Users\manag\Documents\benavora\e2e\visual-regression.spec.ts using Playwright's built-in toHaveScreenshot().
+
+      Cover these pages, authenticated as beta1@benavora-test.com: /dashboard, /opportunities, /applications/list, /autoapply, /funders. For each, mask any element containing live timestamps or relative dates (e.g. "3 days ago") before the screenshot so runs stay stable, using Playwright's mask option.
+
+      Generate the initial baseline screenshots this run: npx playwright test e2e/visual-regression.spec.ts --update-snapshots.
+
+      Add a pnpm script "test:visual" to package.json that runs npx playwright test e2e/visual-regression.spec.ts (without --update-snapshots, so CI compares against the committed baseline).
+
+      Document in a comment at the top of the file: baselines must be regenerated deliberately with --update-snapshots after any intentional UI change, never silently.
+    expected_outputs:
+      - e2e/visual-regression.spec.ts
+    gates:
+      - type: compile
+      - type: file_exists
+        files: [e2e/visual-regression.spec.ts]
+    max_retries: 3
+    on_fail: halt
+
+  - id: t6-migration-001
+    phase: build
+    description: "T6 - Extend the existing migration idempotency harness with a real forward+rollback dry run"
+    prompt: |
+      Read MIGRATION_IDEMPOTENCY_AUDIT.md and the existing harness it documents in full before writing anything - do not duplicate what already exists there.
+
+      Extend the existing harness (find its real file path via MIGRATION_IDEMPOTENCY_AUDIT.md's own references) to add one real capability it is missing: a dry-run mode that, against a disposable Supabase branch (use Supabase:create_branch if the MCP tool is available, otherwise a locally-scoped test schema), applies every migration in src/supabase/migrations in order, confirms each is idempotent (safe to reapply), and reports the first migration that fails or is destructive without a corresponding down-migration.
+
+      If a disposable branch cannot be created in this environment, build the harness to run against a real local Postgres instance instead (document the exact setup command), and note in STATE_OF_THE_BUILD.md that Supabase-branch mode is the intended production path but was not exercised live this session if that is the case.
+
+      Do not run this against the production DATABASE_URL under any circumstances.
+    expected_outputs:
+      - src/scripts/migration-idempotency-check.ts
+    gates:
+      - type: compile
+      - type: file_exists
+        files: [src/scripts/migration-idempotency-check.ts]
+    max_retries: 3
+    on_fail: halt
+
+  - id: t7-soak-001
+    phase: build
+    description: "T7 - Soak test for the AutoApply Railway worker under sustained queue load"
+    prompt: |
+      Read SOAK_TEST_RESULTS.md in full (this covers enrichment scrapers only - a different soak test - do not duplicate, extend the pattern).
+      Read WORKER_ARCHITECTURE_v2.md and AUTOAPPLY_ARCHITECTURE_V2.md.
+
+      Create C:\Users\manag\Documents\benavora\scripts\soak-test-autoapply-worker.ts.
+
+      This script, run against a real but disposable set of test orgs (create 3 fresh test orgs via the real signup flow or direct insert, never reuse Faith Foundation's real org), enqueues 50 real submission_queue rows in rapid succession and monitors the Railway worker (bd9f0c6b-fe01-4f31-9ef7-5fe9d7d0b127) for: queue drain rate, memory growth over the run (log RSS at 1-minute intervals if a metrics endpoint exists, otherwise log queue depth over time), and any errors surfaced in Railway logs during the run.
+
+      Produce SOAK_TEST_AUTOAPPLY_RESULTS.md with real findings only - actual drain time, actual error count, actual any-memory-growth-observed conclusion. If PROXY_LIST being empty (known non-fatal gap per project memory) causes any observable degradation under this load, state that explicitly with numbers.
+
+      Clean up all 3 disposable test orgs and their queue rows at the end of the script, confirmed via a final count query.
+    expected_outputs:
+      - scripts/soak-test-autoapply-worker.ts
+      - SOAK_TEST_AUTOAPPLY_RESULTS.md
+    gates:
+      - type: compile
+      - type: file_exists
+        files: [scripts/soak-test-autoapply-worker.ts, SOAK_TEST_AUTOAPPLY_RESULTS.md]
+    max_retries: 3
+    on_fail: halt
+
+  - id: t8-crossbrowser-001
+    phase: build
+    description: "T8 - Cross-browser config for the T4 critical path suite"
+    prompt: |
+      Read e2e/critical-paths.spec.ts and playwright.config.ts from t4-e2e-001.
+
+      Update playwright.config.ts to define three projects: chromium, firefox, webkit, each running e2e/critical-paths.spec.ts.
+
+      Run npx playwright install to fetch the firefox and webkit browser binaries if not present.
+
+      Run npx playwright test e2e/critical-paths.spec.ts (all three projects) and fix any real cross-browser failures found - do not skip or xfail a failing browser without first confirming via the actual error output whether it is a real app bug or a test-authoring issue (e.g. a selector that only matches Chromium's rendering).
+
+      Add a pnpm script "test:e2e:all-browsers" that runs this three-project suite.
+    expected_outputs:
+      - playwright.config.ts
+    gates:
+      - type: compile
+      - type: test
+    max_retries: 3
+    on_fail: halt
+
+  - id: t4-t8-verify-001
+    phase: build
+    description: "Verify full T4-T8 suite and update governance"
+    prompt: |
+      1. Run pnpm run build and fix any errors.
+      2. Run pnpm tsc --noEmit and fix any TypeScript errors.
+      3. Run npx playwright test e2e/critical-paths.spec.ts --project=chromium and confirm real pass output (paste the actual terminal summary into your response, not a restated claim).
+      4. Update C:\Users\manag\Documents\benavora\FEATURE_REGISTRY_v2.md's Testing Features table: mark T4, T5, T6, T7, T8 as BUILT - VERIFIED, each with today's date and the exact file path delivering it, following this doc's existing citation style (real command output referenced, not inferred).
+      5. Update STATE_OF_THE_BUILD.md and SESSION_STATE.md with a live-audit summary of this queue's real outcome, including any test that did not pass and was left open rather than silently marked done.
+    expected_outputs:
+      - FEATURE_REGISTRY_v2.md
+      - STATE_OF_THE_BUILD.md
+      - SESSION_STATE.md
+    gates:
+      - type: compile
+      - type: build
+    max_retries: 3
+    on_fail: halt

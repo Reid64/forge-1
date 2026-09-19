@@ -1,0 +1,707 @@
+governance:
+- STATE_OF_THE_BUILD.md
+- SESSION_STATE.md
+- BLUEPRINT_v2.md
+project: benavora
+settings:
+  max_retries_per_prompt: 2
+  permission_mode: acceptEdits
+prompts:
+- id: ar-22-1-stubs-and-dead-routes
+  name: Phase 22.1 Wire it or delete it - stop carrying pages that do nothing
+  description: Carrying dead routes is why every count in this platform has been untrustworthy
+  phase: "22"
+  prompt: |
+    BENAVORA - PHASE 22.1 - STUBS AND DEAD ROUTES
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Read test-evidence/SURFACE_DATA_TRUTH.md and test-evidence/ROUTE_CENSUS.md.
+    Every route classified STUB or DEAD, and every route the census called
+    EMPTY SHELL or CRASHES, gets one of exactly three outcomes. No fourth
+    option, and "leave it for later" is not one of them.
+
+      WIRE    - the feature is real and the page should show it. Wire it to
+                the real org-scoped query and make it render.
+      DELETE  - the feature does not exist and is not planned. Remove the
+                route, its components, its unreferenced API routes, and its nav
+                entry. AR-15 deleted dead agents for exactly this reason:
+                carrying dead things is why every count in this platform has
+                been untrustworthy for six months.
+      GATE    - the feature is genuinely planned but not built. Put it behind a
+                feature flag, off by default, and remove it from navigation
+                entirely. A flagged-off route is honest; a "coming soon" page a
+                paying customer can click into is not. Read
+                FEATURE_FLAG_DEFINITIONS.md and use the existing mechanism
+                rather than inventing a second one.
+
+    DECIDE FROM EVIDENCE, NOT FROM THE FILE NAME. Before choosing DELETE,
+    confirm the backing capability is genuinely absent: check for the API
+    route, the table, the agent, and any reference in
+    test-evidence/AGENT_CENSUS.md. A page that is empty because AR-14's
+    pipeline produced no rows is a WIRE, not a DELETE - the page is correct and
+    its upstream was broken. Getting this distinction wrong deletes working
+    product.
+
+    THE 20 NO-FETCH DASHBOARD PAGES from AR-20.2 are the starting list, but
+    AR-20.2 classified some of them DELEGATES or SERVER-RENDERED. Do not touch
+    those. Work the STUB and DEAD sets only, plus every CRASHES route from the
+    census regardless of classification - a crash is a defect whatever the data
+    path.
+
+    TWO BILLING PAGES EXIST - (dashboard)/billing and
+    (dashboard)/settings/billing. AR-20.4 determined which is live. Delete the
+    dead one here, and make sure nothing links to it.
+
+    EVERY DELETION IS A SEPARATE, REVERSIBLE COMMIT, listing the exact paths
+    removed. Never `git add -A`. If you are not certain a file is unreferenced,
+    grep for every import of it and paste the result before deleting it.
+
+    UPDATE BOTH BASELINES in the same commits: route-baseline.json moves upward
+    for every route you wired, and deleted routes are removed from it rather
+    than left as phantom entries that can never pass again.
+
+    INCREMENTAL TESTING CHECKPOINT
+    src/__tests__/integration/no-stub-routes.test.ts asserting: every route
+    reachable from navigation renders real content or its designed empty state;
+    no route in navigation is flagged off; and no deleted route is still
+    referenced anywhere.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    BLUEPRINT_v2.md and FEATURE_FLAG_DEFINITIONS.md with every WIRE, DELETE and
+    GATE decision and its reason.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test. Real numbers. Then state the
+    route count before and after, how many were wired, deleted and gated, and
+    paste route-renders.mjs's verdict. Name any route you could not decide and
+    say why.
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/app src/components src/__tests__ test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md FEATURE_FLAG_DEFINITIONS.md
+    git commit -m "[FORGE] AR-22.1: every stub, dead and crashing route wired, deleted or flagged off - no coming-soon pages left reachable"
+    git push origin main
+  gates:
+  - type: compile
+  - type: build
+  - type: test
+  - type: file_exists
+    files:
+    - src/__tests__/integration/no-stub-routes.test.ts
+  - type: shell
+    run: node scripts/audit/forge-gates/route-renders.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-22-2-fabricated-display-data
+  name: Phase 22.2 Remove every number a customer could act on that is not theirs
+  description: Law 4 - zero mocks. Sample data presented as real is the surface equivalent of a constant score
+  phase: "22"
+  prompt: |
+    BENAVORA - PHASE 22.2 - FABRICATED DISPLAY DATA
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Read test-evidence/SURFACE_DATA_TRUTH.md. AR-20.2 separated the 74
+    hardcoded arrays into legitimate constants and FAKE BUSINESS DATA shown to
+    the customer as their own. Fix the second category. Leave the first alone -
+    enum labels, nav definitions and status colour maps belong in code.
+
+    THIS IS THE SAME DEFECT CLASS AR-17 FIXED IN THE AGENT LAYER. A constant
+    score presented as a personalised assessment, and a sample funder presented
+    as a match, are the same lie told at different layers. AR-17.5's rule
+    applies unchanged: where real data is unavailable the correct output is an
+    explicit, designed empty or insufficient-data state - never a plausible
+    placeholder that reads as real.
+
+    PER FABRICATED SOURCE:
+      - replace it with the real org-scoped query
+      - where the real query can return nothing, render AR-21.5's empty state,
+        which says why it is empty and what fills it
+      - where the underlying capability does not exist yet, this is an AR-22.1
+        GATE case that was missed - flag it off and say so, do not leave the
+        fake data in place
+
+    TENANCY, EVERY TIME. Every query is scoped to the session's
+    organization_id, taken from the SESSION and never from a URL parameter or a
+    request body. Law 2. If AR-20.2 found any route where changing an id
+    exposes another organization's data, THAT IS THE FIRST THING YOU FIX IN
+    THIS PROMPT, ahead of everything else on the list, and it gets its own
+    commit and its own test.
+
+    NUMBERS MUST BE TRACEABLE. Every figure, count, total and percentage a
+    customer sees must be derivable from a query you can name. AR-10 found PIL
+    dollar figures overstated roughly 4.4x - 2.22x from a wrong hardcoded rate
+    and 2x from a duplicate write - and no dashboard revealed it. For every
+    aggregate on every page, state the query and verify one value by hand
+    against the database. Report the check.
+
+    CHARTS AND METRICS get the same treatment as tables. A seeded chart series
+    is fabricated data with a nicer presentation.
+
+    INCREMENTAL TESTING CHECKPOINT
+    src/__tests__/integration/surface-data-truth.test.ts asserting: no page
+    renders a hardcoded business record; every aggregate matches a direct
+    database query for the same org; an org with no data renders empty states
+    rather than samples; and org A cannot read org B's records by id
+    substitution.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    BLUEPRINT_v2.md and BEHAVIORAL_CONTRACTS.md with the display-data contract.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test. Real numbers. Then state how
+    many fabricated sources were removed, how many aggregates were hand-verified
+    against the database and how many matched, whether any cross-tenant read
+    was found and fixed, and paste route-renders.mjs's verdict.
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/app src/components src/lib src/__tests__ test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md BEHAVIORAL_CONTRACTS.md
+    git commit -m "[FORGE] AR-22.2: fabricated display data replaced with org-scoped queries; every aggregate traceable and hand-verified"
+    git push origin main
+  gates:
+  - type: compile
+  - type: build
+  - type: test
+  - type: file_exists
+    files:
+    - src/__tests__/integration/surface-data-truth.test.ts
+  - type: shell
+    run: node scripts/audit/forge-gates/route-renders.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-22-3-restyle-core-paths
+  name: Phase 22.3 The screens a customer actually lives in
+  description: Dashboard, opportunities, funders, applications - migrate to tokens and primitives first
+  phase: "22"
+  prompt: |
+    BENAVORA - PHASE 22.3 - RESTYLE THE CORE PATHS
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Read test-evidence/DESIGN_DIRECTION.md. Migrate the routes a paying
+    customer uses daily, and only those, onto AR-21.3's tokens and AR-21.4's
+    primitives:
+      (dashboard)/dashboard        2 pages
+      (dashboard)/opportunities    3
+      (dashboard)/funders          5
+      (dashboard)/applications     4
+      (dashboard)/contacts         3
+      (dashboard)/foundations      2
+      (dashboard)/outcomes         2
+      (dashboard)/renewals         1
+    Verify those counts before starting. Roughly 22 pages plus their
+    components.
+
+    MIGRATION, NOT REDESIGN. Replace hardcoded colours with tokens, raw
+    elements with primitives, ad-hoc spacing with the scale. Do not
+    restructure information architecture, rename things, or change what a
+    screen does. A restyle that also moves features cannot be reviewed, and
+    when it breaks nobody can tell which half broke it.
+
+    LOWER BOTH BASELINES IN THIS COMMIT. design-token-baseline.json and the
+    ui-primitives baseline must fall by the number of violations you actually
+    removed in these files. The gates fail on any increase, so the baselines
+    are the record of progress - a prompt that restyles 22 pages and does not
+    move the baselines did not do the work.
+
+    DENSITY IS A REAL DECISION. These are dense, tabular, long-session screens
+    for staff scanning many grant records. Apply the direction's stated table
+    row and field heights. Do not quietly loosen density to make a screen look
+    airier in a screenshot - a nonprofit director comparing forty funders needs
+    rows on one screen, and AR-21.2 chose the density for that reason.
+
+    LONG REAL CONTENT IS THE TEST. A 140-character grant title, a funder with
+    no logo, a description of two thousand words, a table with one row, a table
+    with four hundred. Check each against real production data. Truncation must
+    be deliberate and the full value reachable.
+
+    RESPONSIVE AS YOU GO for these routes - AR-20.3 measured 271 of 401 files
+    with no breakpoint at all. Every page in this batch works at 375px: no
+    horizontal page scroll, no clipped table without an intentional scroll
+    container, every control reachable. Take real 375px screenshots and look at
+    them.
+
+    PRESERVE BEHAVIOUR EXACTLY. Every button still does what it did, every form
+    still saves, every filter still filters, every link still navigates. Law 5.
+
+    INCREMENTAL TESTING CHECKPOINT
+    Update e2e/visual-regression.spec.ts with baseline screenshots for these
+    routes at 1440px and 375px, light and dark. A visual baseline captured
+    before the restyle is worthless; capture after, and state that these are
+    new baselines rather than passed comparisons.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    BLUEPRINT_v2.md with the per-route migration status.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test, npx playwright test. Real
+    numbers. Then state the token-violation count before and after for these
+    files, the raw-element count before and after, and paste the verdicts of
+    design-tokens.mjs, route-renders.mjs and a11y.mjs.
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/app src/components e2e test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md
+    git commit -m "[FORGE] AR-22.3: core customer paths migrated to tokens and primitives at the chosen density, responsive to 375px, behaviour preserved"
+    git push origin main
+  gates:
+  - type: compile
+  - type: build
+  - type: test
+  - type: shell
+    run: node scripts/audit/forge-gates/design-tokens.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/a11y.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/route-renders.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-22-4-restyle-intelligence-autoapply
+  name: Phase 22.4 The 42 pages nobody has looked at
+  description: intelligence has 24 pages and autoapply 18 - the largest unreviewed surface in the product
+  phase: "22"
+  prompt: |
+    BENAVORA - PHASE 22.4 - RESTYLE INTELLIGENCE AND AUTOAPPLY
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    (dashboard)/intelligence carries 24 pages and (dashboard)/autoapply carries
+    18 - 42 of 176, the largest single block of surface in this product, and
+    the block most likely to contain screens built by an agent and never opened
+    by a human. Verify both counts before starting.
+
+    BEFORE RESTYLING, CHECK WHETHER EACH PAGE SHOULD EXIST. AR-22.1 worked the
+    routes the census flagged, but a block this size assembled this fast
+    accumulates near-duplicates: two analytics pages showing the same data, a
+    detail view superseded by a tab elsewhere. For each page state whether it
+    is reachable from navigation, distinct from its siblings, and used. Anything
+    unreachable and duplicated is an AR-22.1 DELETE that was missed - handle it
+    here rather than restyling it, and say so.
+
+    THEN MIGRATE what remains onto tokens and primitives, on the same terms as
+    AR-22.3: migration not redesign, behaviour preserved, density from the
+    direction, real long content, responsive to 375px, both baselines lowered
+    in the commit.
+
+    THIS BLOCK IS WHERE AR-17'S WORK BECOMES VISIBLE. These pages display
+    scores, probabilities and match strengths. AR-17.5 made every score carry
+    its evidence or declare insufficient data. THE UI MUST SHOW BOTH:
+      - a score with its evidence reachable - a customer must be able to ask
+        why and get an answer from the stored rationale
+      - insufficient-data rendered as an honest state, not as a zero, a dash,
+        or an empty gauge that reads as a real low score
+    A page rendering AR-17's honest insufficient-data outcome as "0%" reverses
+    the fix. Check every score display for exactly that, and name any you find.
+
+    AUTOAPPLY DISPLAYS SUBMISSION STATE, which AR-3 and AR-16 made honest.
+    Never present an unconfirmed submission as submitted. Never weaken or work
+    around the approval gate or the mutual-exclusion guard to make a screen
+    look complete - both are out of scope for any styling work.
+
+    WORK IN BATCHES OF SIX TO EIGHT PAGES: migrate, run the gates, report,
+    continue. Do not migrate 42 pages and then measure.
+
+    INCREMENTAL TESTING CHECKPOINT
+    src/__tests__/integration/score-display-honesty.test.ts asserting: an
+    insufficient-data score renders its honest state and never a numeric zero;
+    every displayed score exposes its evidence; and no unconfirmed submission
+    renders as submitted. Plus visual baselines at 1440px and 375px.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    BLUEPRINT_v2.md with per-page status and every deletion.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test, npx playwright test. Real
+    numbers. Then state pages migrated, pages deleted as duplicates, how many
+    score displays misrepresented insufficient data before this prompt, and
+    paste the verdicts of design-tokens.mjs, route-renders.mjs and a11y.mjs.
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/app src/components src/__tests__ e2e test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md
+    git commit -m "[FORGE] AR-22.4: intelligence and autoapply migrated, duplicates removed, and AR-17's insufficient-data outcome rendered honestly instead of as zero"
+    git push origin main
+  gates:
+  - type: compile
+  - type: build
+  - type: test
+  - type: file_exists
+    files:
+    - src/__tests__/integration/score-display-honesty.test.ts
+  - type: shell
+    run: node scripts/audit/forge-gates/design-tokens.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/a11y.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/route-renders.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-22-5-restyle-settings-admin-reports
+  name: Phase 22.5 Settings, admin, reports, knowledge base, outreach
+  description: The remaining dashboard surface, including the forms where a customer's data is entered
+  phase: "22"
+  prompt: |
+    BENAVORA - PHASE 22.5 - RESTYLE THE REMAINING DASHBOARD
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    The remaining dashboard blocks, counts to verify first:
+      (dashboard)/settings         11 pages
+      (dashboard)/admin             9
+      (dashboard)/reports           7
+      (dashboard)/knowledge-base    6
+      (dashboard)/outreach          5
+      (dashboard)/donor-discovery  10
+      (dashboard)/email             4
+      (dashboard)/draft-generator   4
+      plus research, search-profiles, schoolfunder, google-nonprofit
+
+    Same terms as AR-22.3 and AR-22.4: migration not redesign, behaviour
+    preserved, responsive to 375px, both baselines lowered in the commit.
+
+    FORMS GET DISPROPORTIONATE ATTENTION HERE, because this is where a
+    customer's data goes in and a bad form loses it. For every form:
+      - every field labelled, with its label programmatically associated - not
+        placeholder text standing in for a label, which disappears on focus and
+        is invisible to a screen reader. AR-20.3 found 51 page files containing
+        "placeholder"; check which are doing that.
+      - validation errors shown next to the field, in words, before submit
+        where possible
+      - a submit button that disables during submission and cannot double-fire
+      - success and failure both visible - a save that silently does nothing is
+        the surface version of the error-swallowing AR-11.2 fixed in 55 places
+      - unsaved-change protection on any form long enough to lose work. The
+        AutoSaveIndicator primitive already exists - use it rather than
+        building a second mechanism.
+      - no field silently unfillable. AR-12 found FormFillerAgent could not
+        fill EIN, email, phone or address for ANY organization because it
+        matched knowledge_base.category strings against a closed enum with no
+        such members. Check the knowledge-base and settings forms for the same
+        shape: a field bound to a value that can never arrive.
+
+    ADMIN PAGES ARE STILL PRODUCT. They are what Reid uses to support
+    customers, and a support tool nobody can read costs more than it saves.
+    Migrate them properly. Confirm every admin route is role-gated - read
+    middleware.ts, DO NOT MODIFY IT, it is under a standing
+    full-replacement-only rule requiring Reid's explicit approval.
+
+    REPORTS AND EXPORTS: if a report renders a figure, that figure follows
+    AR-22.2's traceability rule. If a report exports a file, verify the export
+    actually opens in the target application and contains the same numbers the
+    screen showed.
+
+    WORK IN BATCHES OF SIX TO EIGHT PAGES: migrate, run the gates, report,
+    continue.
+
+    INCREMENTAL TESTING CHECKPOINT
+    src/__tests__/integration/form-integrity.test.ts asserting: every form
+    field has an associated label; validation errors render adjacent to their
+    field; a submit cannot double-fire; a failed save surfaces an error rather
+    than appearing to succeed; and no field is bound to a value that cannot
+    arrive. Plus visual baselines at 1440px and 375px.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    BLUEPRINT_v2.md with per-page status.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test, npx playwright test. Real
+    numbers. Then state pages migrated, forms fixed, how many used placeholder
+    text as a label, how many silently swallowed a failed save, and paste the
+    verdicts of design-tokens.mjs, route-renders.mjs and a11y.mjs.
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/app src/components src/__tests__ e2e test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md
+    git commit -m "[FORGE] AR-22.5: remaining dashboard migrated; forms labelled, validated, double-submit-safe and honest about failure"
+    git push origin main
+  gates:
+  - type: compile
+  - type: build
+  - type: test
+  - type: file_exists
+    files:
+    - src/__tests__/integration/form-integrity.test.ts
+  - type: shell
+    run: node scripts/audit/forge-gates/design-tokens.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/a11y.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/route-renders.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-22-6-onboarding-first-run
+  name: Phase 22.6 The nine-step wizard that decides whether anyone ever sees the product
+  description: A new organization with an empty database is the hardest state this product has and the one every customer starts in
+  phase: "22"
+  prompt: |
+    BENAVORA - PHASE 22.6 - ONBOARDING AND FIRST RUN
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    src/components/onboarding contains nine step components - Welcome,
+    OrgProfile, Programs, BoardMembers, Documents, Funder, SearchProfile,
+    StepIndicator, PlatformTour - plus OnboardingWizard and OnboardingBanner,
+    and three API routes including generate-narratives and complete-setup. The
+    entire e2e suite tests onboarding with ONE test visiting ONE route. Verify
+    that.
+
+    EVERY CUSTOMER STARTS IN THE EMPTY STATE, and it is the state this product
+    handles worst: AR-20.3 found zero loading, error or not-found boundaries
+    anywhere. A first-run experience that shows nine blank regions and a
+    generic error page loses the customer before the platform gets a chance to
+    work.
+
+    DRIVE THE WHOLE FLOW AS A BRAND-NEW ORGANIZATION IN A BROWSER, with a
+    genuinely empty database for that org, and record what actually happens at
+    every step. Then fix what you find, in this order of severity:
+      1. anything that blocks completion
+      2. anything that loses entered data - a back button, a refresh, a
+         validation failure on step seven discarding steps one to six
+      3. anything that cannot be resumed. A director interrupted on step four
+         must return to step four, not step one. Determine whether partial
+         progress is persisted at all; if it is not, that is the finding.
+      4. anything that silently fails - generate-narratives timing out, a
+         document upload rejected without a message, complete-setup half
+         succeeding
+      5. anything unclear about why the step is being asked
+
+    DEFINE AND VERIFY THE COMPLETION CONTRACT. What is true in the database
+    once onboarding completes, and does the product actually work in that
+    state? Land the customer somewhere that shows value on the first screen,
+    not an empty dashboard. If the honest answer is that the platform needs an
+    agent run to produce anything worth seeing, say so and make the wait
+    explicit and explained rather than presenting an empty dashboard as the
+    finished product.
+
+    DOCUMENT UPLOAD is a real risk surface: validate type and size, reject
+    clearly, never accept a file the pipeline cannot read. AR-17.3 found
+    ag-29-knowledge-indexer iterating over nothing - confirm an uploaded
+    document actually reaches the knowledge base and is processed, and check it
+    live rather than trusting the upload's success response.
+
+    MIGRATE THE FLOW to tokens and primitives while you are in it, on AR-22.3's
+    terms, and lower both baselines in the commit.
+
+    INCREMENTAL TESTING CHECKPOINT
+    Replace the single onboarding e2e test with a real suite: complete the full
+    flow as a new org; abandon at each step and resume; refresh mid-step and
+    keep data; fail validation late and keep earlier steps; upload a valid and
+    an invalid document; and assert the completion contract in the database.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    BLUEPRINT_v2.md with the completion contract and every defect found.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test, npx playwright test. Real
+    numbers. Then state whether a brand-new organization can complete
+    onboarding unaided, how many defects blocked or lost data, whether progress
+    is resumable, what a customer sees on their first screen afterwards, and
+    paste route-renders.mjs's verdict.
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/app src/components src/lib e2e test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md
+    git commit -m "[FORGE] AR-22.6: onboarding driven end to end as a new org - completion, resumption and data-loss defects fixed, first screen shows value"
+    git push origin main
+  gates:
+  - type: compile
+  - type: build
+  - type: test
+  - type: shell
+    run: node scripts/audit/forge-gates/route-renders.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/a11y.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-22-7-marketing-surface
+  name: Phase 22.7 Thirty marketing pages deciding whether anyone signs up
+  description: The public surface is the only part of this product a stranger ever sees
+  phase: "22"
+  prompt: |
+    BENAVORA - PHASE 22.7 - THE PUBLIC MARKETING SURFACE
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    (marketing) carries roughly 41 pages including 15 under solutions and 4
+    under platform, plus pricing, how-it-works, tour, demo, scan, security,
+    privacy, terms, for-consultants and a [...slug] catch-all. Thirty of them
+    make no data call, which for marketing pages is usually correct. Verify the
+    counts.
+
+    THIS IS THE ONLY SURFACE A STRANGER SEES, and it is the one place where
+    visual quality converts directly into revenue. Migrate it to tokens and
+    primitives on AR-22.3's terms, and additionally:
+
+    EVERY CLAIM MUST BE TRUE. AR-20.4 established what the product actually
+    enforces versus what the pricing page promises. Where the marketing surface
+    claims a capability the platform does not have, or a limit it does not
+    enforce, FIX THE COPY rather than leaving a claim AR-23 then has to build
+    to. Report every claim you changed and why. Do not invent new claims,
+    customer counts, testimonials, logos or outcome statistics - a fabricated
+    testimonial or an invented customer logo is a legal exposure, not a design
+    choice, and it is the same fabrication defect AR-17.4 hunts in drafts.
+
+    THE CATCH-ALL ROUTE, (marketing)/[...slug], needs checking: what does it
+    serve, where does the content come from, and what happens on an unknown
+    path. A catch-all that renders an empty page for any URL is an SEO and
+    trust problem. robots.ts and sitemap.ts exist - confirm they list the real
+    route set after AR-22.1's deletions, or they now advertise routes that 404.
+
+    PERFORMANCE MATTERS HERE in a way it does not inside the dashboard.
+    Measure real numbers with Lighthouse or the Playwright performance API on
+    the top five entry pages: largest contentful paint, cumulative layout
+    shift, total blocking time, and payload size. Report actual figures before
+    and after. Unoptimised images and a layout that jumps are the two most
+    common causes and both are mechanical to fix.
+
+    MOBILE IS THE MAJORITY CASE for a public site. Every marketing page works
+    at 375px. Take the screenshots and look at them.
+
+    THE CONVERSION PATH must work end to end: land, understand, reach pricing,
+    reach register, complete registration, arrive in onboarding. Drive it in a
+    browser as a stranger and report where it breaks. Test it once as a real
+    new signup, in test mode only - never create a live Stripe subscription or
+    process a real payment.
+
+    INCREMENTAL TESTING CHECKPOINT
+    e2e coverage for the full conversion path, plus 375px and 1440px visual
+    baselines for every marketing page, plus an assertion that sitemap.ts lists
+    only routes that return 200.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    BLUEPRINT_v2.md with per-page status, every copy claim changed, and the
+    before and after performance figures.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test, npx playwright test. Real
+    numbers. Then state pages migrated, claims corrected, the real performance
+    figures before and after for the top five pages, whether the conversion
+    path completes, and paste the verdicts of design-tokens.mjs,
+    route-renders.mjs and a11y.mjs.
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/app src/components e2e public test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md
+    git commit -m "[FORGE] AR-22.7: marketing surface migrated, every claim reconciled against what the product enforces, conversion path proven, real performance figures recorded"
+    git push origin main
+  gates:
+  - type: compile
+  - type: build
+  - type: test
+  - type: shell
+    run: node scripts/audit/forge-gates/design-tokens.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/a11y.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/route-renders.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-22-8-responsive-sweep
+  name: Phase 22.8 Close the responsive gap and drive the baselines to zero
+  description: 271 of 401 files had no breakpoint - this prompt owns whatever the batches did not reach
+  phase: "22"
+  prompt: |
+    BENAVORA - PHASE 22.8 - RESPONSIVE SWEEP AND BASELINE CLOSEOUT
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    AR-20.3 measured 130 of 401 files using any responsive breakpoint, meaning
+    271 did not. AR-22.3 through AR-22.7 each handled responsiveness for their
+    own batch. This prompt owns the remainder and the closeout.
+
+    TWO JOBS.
+
+    JOB 1 - THE REMAINDER. Read the current design-token and ui-primitives
+    baselines. Whatever violations remain, and whatever routes still break
+    below 768px, are here. Work them down. Take real screenshots at 375px,
+    768px and 1440px for every remaining route and LOOK AT THEM - a breakpoint
+    count is not evidence that a layout works, and this is the prompt where
+    that distinction decides whether the sweep was real.
+
+    DATA TABLES ARE THE HARD CASE and this product is full of them. A dense
+    grant table cannot simply reflow. Decide the pattern once and apply it
+    consistently: horizontal scroll within a contained region with the key
+    column pinned, or a card layout below a stated breakpoint. State the
+    decision, apply it everywhere, and record it as a contract so the next
+    table built follows it rather than inventing a third pattern.
+
+    JOB 2 - THE HONEST CLOSEOUT. State the final baseline numbers and the
+    remainder plainly:
+      - token violations: start 198 files, now how many
+      - raw interactive elements: start 169 button, 86 input, 38 select, now
+        how many
+      - routes with no breakpoint: start 271 files, now how many
+      - routes still EMPTY SHELL or CRASHING in route-baseline.json
+      - serious and critical axe violations remaining, by route
+    IF A BASELINE IS NOT ZERO, SAY SO AND SAY WHY. A remainder honestly stated
+    is a usable input to the next programme. A baseline quietly raised to make
+    a gate pass is the defect this entire remediation exists to remove, and it
+    is the one thing you must not do in this prompt.
+
+    DO NOT RAISE ANY BASELINE. If a gate fails, fix the code. If a violation is
+    genuinely legitimate - a third-party embed, an illustration asset - add it
+    to an explicit, named, individually justified allowlist in the baseline
+    file, never a blanket exclusion and never a directory-wide one.
+
+    INCREMENTAL TESTING CHECKPOINT
+    Full visual regression across every route at 375px and 1440px, light and
+    dark, plus an assertion that no route produces horizontal page scroll at
+    375px.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    BLUEPRINT_v2.md and BEHAVIORAL_CONTRACTS.md with the responsive table
+    contract and the final baseline figures.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test, npx playwright test. Real
+    numbers. Then print the five baseline figures above as a before-and-after
+    table, name every route still failing, and paste the verdicts of
+    design-tokens.mjs, ui-primitives.mjs, route-boundaries.mjs, a11y.mjs and
+    route-renders.mjs.
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/app src/components e2e test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md BEHAVIORAL_CONTRACTS.md
+    git commit -m "[FORGE] AR-22.8: responsive sweep closed out with one table pattern applied everywhere, and every baseline reported honestly rather than raised"
+    git push origin main
+  gates:
+  - type: compile
+  - type: build
+  - type: test
+  - type: shell
+    run: node scripts/audit/forge-gates/design-tokens.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/ui-primitives.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/route-boundaries.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/a11y.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/route-renders.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt

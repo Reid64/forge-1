@@ -1,0 +1,299 @@
+project: benavora
+queues:
+  - id: ar-1-observability
+    file: queue-ar-1-observability.yaml
+    description: "Phase 1 - identity and observability so agent failures become measurable"
+    status: complete
+    depends_on:
+      - []
+    prompt_count: 2
+    estimated_hours: 4
+    priority: 1
+    note: "Authored 2026-09-16 from the execution-based agent audit."
+
+  - id: ar-2-infrastructure
+    file: queue-ar-2-infrastructure.yaml
+    description: "Phase 2 - cross-cutting defects: wrong table, agent timeouts, Claude concurrency, schema drift"
+    status: complete
+    depends_on:
+      - ar-1-observability
+    prompt_count: 2
+    estimated_hours: 4
+    priority: 2
+    note: "Authored 2026-09-16 from the execution-based agent audit."
+
+  - id: ar-3-autoapply-integrity
+    file: queue-ar-3-autoapply-integrity.yaml
+    description: "Phase 3 - P0: stop AutoApply reporting submissions that never happened"
+    status: complete
+    depends_on:
+      - ar-2-infrastructure
+    prompt_count: 1
+    estimated_hours: 3
+    priority: 3
+    note: "Authored 2026-09-16 from the execution-based agent audit."
+
+  - id: ar-4-exercise-harness
+    file: queue-ar-4-exercise-harness.yaml
+    description: "Phase 4 - keystone: harness that invokes every agent and records real outcomes"
+    status: complete
+    depends_on:
+      - ar-3-autoapply-integrity
+    prompt_count: 1
+    estimated_hours: 3
+    priority: 4
+    note: "Authored 2026-09-16 from the execution-based agent audit."
+
+  - id: ar-5-cost-consolidation
+    file: queue-ar-5-cost-consolidation.yaml
+    description: "Phase 5 - one cost ledger and real budget enforcement, before anything is built on top of them"
+    status: complete
+    depends_on:
+      - ar-4-exercise-harness
+    prompt_count: 2
+    estimated_hours: 5
+    priority: 5
+    note: "Authored 2026-09-17 from the Orchestration Logging and Alerting Spec v1.0 review, with three spec blockers corrected against the live schema. All 4 gate scripts self-tested positive and negative before shipping."
+
+  - id: ar-6-orchestration-observability
+    file: queue-ar-6-orchestration-observability.yaml
+    description: "Phase 6 - orchestration_logs, eight alert types on the live alerts table, deterministic rules 1-5, worker-side Slack delivery"
+    status: complete
+    depends_on:
+      - ar-5-cost-consolidation
+    prompt_count: 4
+    estimated_hours: 12
+    priority: 6
+    note: "Completed 2026-09-17. Prompt 4 was recorded FAILED on a false-positive gate (comment text matched); gate fixed and all five gates verified green against the shipped tree."
+
+  - id: ar-7-agent-recovery
+    file: queue-ar-7-agent-recovery.yaml
+    description: "Phase 7 - fix the agents that already run and fail: 215 browser failures, the AutoApply session deadlock, and errors that name no cause"
+    status: complete
+    depends_on:
+      - ar-6-orchestration-observability
+    prompt_count: 3
+    estimated_hours: 8
+    priority: 7
+    note: "Authored 2026-09-17 from live agent_runs error text, not from a code read. Every defect named carries its production error string and failure count. Gates self-tested 2/2 positive, 8/8 negative."
+
+  - id: ar-8-ci-and-test-integrity
+    file: queue-ar-8-ci-and-test-integrity.yaml
+    description: "Phase 8 - CI build parity, a test gate that fits its budget, and a clean working tree"
+    status: complete
+    depends_on:
+      - ar-7-agent-recovery
+    prompt_count: 3
+    estimated_hours: 2.1
+    priority: 8
+    note: "Runs FIRST: the test gate hit its 300s ceiling on 156 spec files during AR-7.1 and burned a retry. Do not load 13 more prompts onto a harness already at its limit."
+
+  - id: ar-9-observability-that-observes
+    file: queue-ar-9-observability-that-observes.yaml
+    description: "Phase 9 - make orchestration_logs and ai_usage_log actually capture, and find out why five fixed agents are never invoked"
+    status: complete
+    depends_on:
+      - ar-8-ci-and-test-integrity
+    prompt_count: 3
+    estimated_hours: 2.1
+    priority: 9
+    note: "Authored from live production 2026-09-18: 184 agent runs in 3h, 0 orchestration_logs rows, 0 ai_usage_log rows, 0 EA-family invocations. Phases 5 and 6 are deployed and capturing nothing. Gated by live-capture.mjs, which queries production for a row rather than the repo for a file."
+
+  - id: ar-10-cost-truth
+    file: queue-ar-10-cost-truth.yaml
+    description: "Phase 10 - wire the rate card, retire the last second cost writer, give budgets teeth"
+    status: complete
+    depends_on:
+      - ar-9-observability-that-observes
+    prompt_count: 3
+    estimated_hours: 2.1
+    priority: 10
+    note: "AR-6.4 self-reported that model_cost_reference is seeded, freshness-tested and read by nothing. Depends on AR-9.2 first proving the cost ledger receives anything at all."
+
+  - id: ar-11-agent-failure-sweep
+    file: queue-ar-11-agent-failure-sweep.yaml
+    description: "Phase 11 - root-cause the chronically failing agents, stop conflating errors with empty results, restore real alert dedup, calibrate timeouts"
+    status: complete
+    depends_on:
+      - ar-10-cost-truth
+    prompt_count: 4
+    estimated_hours: 2.8
+    priority: 11
+    note: "Twelve agent types fail at least as often as they succeed. Six dedup keys still carry crypto.randomUUID(), so uq_alerts_org_dedup never fires."
+
+  - id: ar-12-autoapply-end-to-end
+    file: queue-ar-12-autoapply-end-to-end.yaml
+    description: "Phase 12 - clear funder_not_found, drive the queue processor to its first ever success, prove the chain end to end"
+    status: complete
+    depends_on:
+      - ar-11-agent-failure-sweep
+    prompt_count: 3
+    estimated_hours: 2.1
+    priority: 12
+    note: "Retargeted 2026-09-18: AR-7.2 worked and the blocker MOVED from concurrent_automation_conflict to funder_not_found. The session deadlock is closed; 0 non-terminal automation_sessions rows."
+
+  - id: ar-13-full-platform-diagnostic
+    file: queue-ar-13-full-platform-diagnostic.yaml
+    description: "Phase 13 - DIAGNOSTICS ONLY: full agent census, every scheduler, every upstream pipeline, then one ranked remediation plan"
+    status: pending
+    depends_on:
+      - ar-12-autoapply-end-to-end
+    prompt_count: 4
+    estimated_hours: 2.3
+    priority: 13
+    note: "Changes no production code. Produces AGENT_CENSUS.md, SCHEDULER_MAP.md, DATA_PIPELINE_AUDIT.md and REMEDIATION_PLAN.md - the evidence base every later phase reads instead of guessing."
+
+  - id: ar-18-build-system-hardening
+    file: queue-ar-18-build-system-hardening.yaml
+    description: "Phase 18 - runs SECOND: a gate that proves work landed, and deploy verification that covers Vercel and Railway"
+    status: pending
+    depends_on:
+      - ar-13-full-platform-diagnostic
+    prompt_count: 2
+    estimated_hours: 1.2
+    priority: 14
+    note: "Deliberately early. On 2026-09-18 ar-10-3 passed all four gates with migration 198 live in production and its code uncommitted. Phases 14-17 must not run without that protection."
+
+  - id: ar-14-pipelines-and-schedulers
+    file: queue-ar-14-pipelines-and-schedulers.yaml
+    description: "Phase 14 - fix the knowledge pipeline, the empty-poll class, and restore scheduled ingest"
+    status: pending
+    depends_on:
+      - ar-18-build-system-hardening
+    prompt_count: 3
+    estimated_hours: 1.8
+    priority: 15
+    note: "ag-29-knowledge-indexer: 63,941 lifetime runs, 177 in 3 hours, ALL with items_processed=0 - roughly 44% of every agent_run ever recorded. Fix the producer before quieting the consumer."
+
+  - id: ar-15-the-fifty-one
+    file: queue-ar-15-the-fifty-one.yaml
+    description: "Phase 15 - full harness pass, WIRE/FIX/DELETE/DEFER verdict per never-executed agent, then wire by family, prove they fire, and execute the deletions"
+    status: pending
+    depends_on:
+      - ar-14-pipelines-and-schedulers
+    prompt_count: 7
+    estimated_hours: 4.1
+    priority: 16
+    note: "~51 agents have never executed. Expanded 4 -> 7 on 2026-09-18: one prompt cannot wire 51 agents across three families. Wiring is batched core / PIL / remainder, with live firing proven before any deletion."
+
+  - id: ar-16-autoapply-to-production
+    file: queue-ar-16-autoapply-to-production.yaml
+    description: "Phase 16 - prove processItem's orchestration, drive the queue processor to a first real submission, enforce the evidence chain"
+    status: pending
+    depends_on:
+      - ar-15-the-fifty-one
+    prompt_count: 3
+    estimated_hours: 1.8
+    priority: 17
+    note: "autoapply_queue_processor: 0 completions across 37+ runs, blocker has moved four times. AR-12.3 named processItem's orchestration as the remaining unproven gap."
+
+  - id: ar-17-agent-efficacy
+    file: queue-ar-17-agent-efficacy.yaml
+    description: "Phase 17 - output quality, not execution: a self-tested sampler, per-family assessment of scoring/research/drafting, fixes at the cause, honest reclassification, then bounded uplift"
+    status: pending
+    depends_on:
+      - ar-16-autoapply-to-production
+    prompt_count: 8
+    estimated_hours: 4.7
+    priority: 18
+    note: "Expanded 3 -> 8 on 2026-09-18. Assessing ~90 agents in one prompt is how the last three audits produced numbers nobody could reproduce. Instrument first, then three assessment families, then two fix batches, then reclassify and uplift separately."
+
+  - id: ar-19-final-verification
+    file: queue-ar-19-final-verification.yaml
+    description: "Phase 19 - regression suite for every defect class, re-census with a measured delta including regressions, Six Laws audit, reconciled handoff"
+    status: pending
+    depends_on:
+      - ar-17-agent-efficacy
+    prompt_count: 4
+    estimated_hours: 2.3
+    priority: 19
+    note: "Closes the programme with the same instrument it opened with, so the delta is measured rather than claimed. Law 6 is left UNVERIFIED by design - it requires a human in a browser."
+
+  - id: ar-20-product-surface-diagnostic
+    file: queue-ar-20-product-surface-diagnostic.yaml
+    description: "Phase 20 - DIAGNOSTICS ONLY: drive all 176 routes in a real browser across three roles, then audit surface data truth, the design system, and billing entitlement"
+    status: pending
+    depends_on:
+      - ar-19-final-verification
+    prompt_count: 5
+    estimated_hours: 2.9
+    priority: 20
+    note: "AR-13..19 fixed the engine and touched ZERO of the product surface - grep across all seven of those queues returns 0 hits for src/components, onboard and billing. Measured 2026-09-18: 176 pages, 354 API routes, 25 routes covered by e2e (14%), 0 loading.tsx, 0 error.tsx, 0 not-found.tsx, 198 of 401 tsx files hardcoding hex, 3 files referencing any plan tier or usage limit."
+
+  - id: ar-21-ui-gates-and-design-system
+    file: queue-ar-21-ui-gates-and-design-system.yaml
+    description: "Phase 21 - runs before any UI fix: a browser-asserted route-render gate, a chosen design direction, the semantic token layer, primitives, route boundaries, and an axe gate - all ratcheted from measured baselines"
+    status: pending
+    depends_on:
+      - ar-20-product-surface-diagnostic
+    prompt_count: 6
+    estimated_hours: 3.5
+    priority: 21
+    note: "Deliberately early, the same reasoning that put AR-18 second. Every gate here is a RATCHET against a recorded baseline, not an absolute standard: a gate demanding zero against 198 pre-existing files halts the build on prompt one and teaches the next agent to weaken it."
+
+  - id: ar-22-product-surface-remediation
+    file: queue-ar-22-product-surface-remediation.yaml
+    description: "Phase 22 - wire/delete/gate every stub, remove fabricated display data, then migrate the surface to tokens and primitives in area batches, plus onboarding, marketing and the responsive sweep"
+    status: pending
+    depends_on:
+      - ar-21-ui-gates-and-design-system
+    prompt_count: 8
+    estimated_hours: 4.7
+    priority: 22
+    note: "Batched by area so a regression is attributable to one prompt. Every batch must LOWER the token and primitive baselines in its own commit - a prompt that restyles 22 pages without moving a baseline did not do the work."
+
+  - id: ar-23-billing-and-surface-verification
+    file: queue-ar-23-billing-and-surface-verification.yaml
+    description: "Phase 23 - one entitlement module, server-side enforcement at the API boundary and at agent dispatch, the Stripe lifecycle closed and reconciled, e2e rebuilt around ten journeys, then the measured surface delta"
+    status: pending
+    depends_on:
+      - ar-22-product-surface-remediation
+    prompt_count: 5
+    estimated_hours: 2.9
+    priority: 23
+    note: "Three files in all of src/lib and src/app referenced plan_tier, entitlement, subscription_status or usage_limit. Same shape as the cost_budgets defect AR-5.2 fixed: spent_usd was read in three places and written by nothing, so hard_stop could never fire. Law 6 is left UNVERIFIED by design - it requires a human in a browser."
+
+  - id: legacy-phase-1-scoring-foundations
+    file: queue-phase-1-scoring-foundations.yaml
+    description: "Scoring foundations repair - 5 critical agents"
+    status: planned
+    depends_on:
+      - []
+    prompt_count: 6
+    estimated_hours: 8
+    priority: 9
+    note: "HELD. Authored 2026-09-10 from the code-only audit that misclassified renewal-tracker-agent. Re-validate against Phase 4 harness output before setting status to pending."
+
+  - id: legacy-phase-2-partial-completions
+    file: queue-phase-2-partial-completions.yaml
+    description: "Partial systems completion - 9 systems"
+    status: planned
+    depends_on:
+      - []
+    prompt_count: 10
+    estimated_hours: 8
+    priority: 9
+    note: "HELD. Authored 2026-09-10 from the code-only audit that misclassified renewal-tracker-agent. Re-validate against Phase 4 harness output before setting status to pending."
+
+  - id: legacy-phase-3-phase1-wiring
+    file: queue-phase-3-phase1-wiring.yaml
+    description: "Agent wiring and new agents - 6 agents"
+    status: planned
+    depends_on:
+      - []
+    prompt_count: 7
+    estimated_hours: 8
+    priority: 9
+    note: "HELD. Authored 2026-09-10 from the code-only audit that misclassified renewal-tracker-agent. Re-validate against Phase 4 harness output before setting status to pending."
+
+  - id: legacy-phase-4-cleanup
+    file: queue-phase-4-cleanup.yaml
+    description: "Cleanup and registry completion - 6 tasks"
+    status: planned
+    depends_on:
+      - []
+    prompt_count: 6
+    estimated_hours: 8
+    priority: 9
+    note: "HELD. Authored 2026-09-10 from the code-only audit that misclassified renewal-tracker-agent. Re-validate against Phase 4 harness output before setting status to pending."
+

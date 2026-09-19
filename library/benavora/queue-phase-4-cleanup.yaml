@@ -1,0 +1,294 @@
+project: benavora
+github_repo: Reid64/benavora
+supabase_project_ref: vbjplpquqxxfbpazyalt
+vercel_project_name: benavora
+domain: benavora.com
+
+governance:
+  - BLUEPRINT_v2.md
+  - SCHEMA_REGISTRY_v2.md
+  - BEHAVIORAL_CONTRACTS.md
+  - STATE_OF_THE_BUILD_2026-09-01.md
+  - STANDING_DIRECTIVES.md
+
+settings:
+  max_retries_per_prompt: 3
+  build_model: claude-sonnet-4-6-20250514
+  review_model: claude-sonnet-4-6-20250514
+  report_model: claude-haiku-4-5-20251001
+  permission_mode: acceptEdits
+  allowed_tools: "*"
+
+prompts:
+
+  - id: p4-001-archive-ea-family
+    phase: cleanup
+    description: "Archive 10 EA family agents (early research agents, replaced by PIL)"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      CLEANUP: EA (Early Agents) family — 10 agents built during initial design phase. All 10 now replaced by PIL infrastructure (superior design, more agents, better tested). No longer needed.
+      
+      ARCHIVE SCOPE:
+      1. Find EA agents: ls -la src/lib/agents/ea-*.ts
+      2. Do NOT delete. Move to src/lib/agents/archived/:
+         - Create src/lib/agents/archived/ directory if not exists
+         - Move all 10 ea-*.ts files to archived/ directory
+      3. Update src/lib/agents/index.ts to remove all EA agent exports
+      4. Update agent-registry-seed.ts to remove any EA agent registry entries
+      5. Run: grep -r "ea-" src --include="*.ts" | grep import — verify no remaining imports of ea-* agents
+      6. Create ARCHIVED_AGENTS.md documenting what was archived and why: "EA family agents replaced by PIL infrastructure, kept for historical reference"
+      7. Test: pnpm tsc --noEmit — no errors
+      8. Commit: git add -A; git commit -m "cleanup(agents): archive EA family agents, replaced by PIL infrastructure"
+      
+      VERIFICATION:
+      - All 10 EA agents moved to archived/
+      - No imports of archived agents remain
+      - Type check passes
+      - ARCHIVED_AGENTS.md created
+      
+    gates:
+      - type: compile
+    max_retries: 2
+    on_fail: stop
+    depends_on: []
+
+  - id: p4-002-merge-duplicate-pairs
+    phase: cleanup
+    description: "Merge 4 duplicate agent pairs into single canonical implementations"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      CLEANUP: Audit identified 4 agent pairs doing nearly identical work. Merge into 1 canonical per pair. Delete duplicate.
+      
+      DUPLICATE PAIRS (verify these from codebase, then merge):
+      Example structure (find actual duplicates):
+      - If duplicate-agent-a.ts and duplicate-agent-b.ts do same work: keep a, delete b, update all b imports to a
+      
+      MERGE SCOPE:
+      1. Grep the codebase to confirm which 4 pairs are actually duplicates: grep -r "extends BaseAgent" src/lib/agents --include="*.ts" | sort | uniq -c | grep " [2-9]"
+      2. For each duplicate pair:
+         - Read both files in full
+         - Compare execute() logic, inputs, outputs
+         - Consolidate into single file (keep the cleaner/more-featured one)
+         - Delete the duplicate file
+         - Update all imports: find . -type f -name "*.ts" -exec grep -l "duplicate-agent-b" {} \; and change to duplicate-agent-a
+         - Update agent-registry-seed.ts if entries exist
+      3. Test: pnpm tsc --noEmit — no type errors
+      4. Test: grep -r "from.*duplicate-agent-b" src — should return zero results
+      5. Commit: git add -A; git commit -m "cleanup(agents): merge 4 duplicate agent pairs into canonical implementations"
+      
+      VERIFICATION:
+      - 4 duplicate pairs identified and merged
+      - Duplicate files deleted
+      - All imports updated
+      - Type check passes
+      - No remaining imports of deleted duplicates
+      
+    gates:
+      - type: compile
+    max_retries: 2
+    on_fail: stop
+    depends_on: []
+
+  - id: p4-003-relocate-test-files
+    phase: cleanup
+    description: "Move all test files from src/ to tests/ directory structure"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      CLEANUP: Test files scattered in src/ directories. Consolidate to tests/ with matching directory structure.
+      
+      RELOCATE SCOPE:
+      1. Find all *.test.ts and *.spec.ts files in src/: find src -name "*.test.ts" -o -name "*.spec.ts"
+      2. Create matching directory structure in tests/: for each src/lib/foo/bar.test.ts, create tests/lib/foo/bar.test.ts
+      3. Move files: mv src/lib/foo/bar.test.ts tests/lib/foo/bar.test.ts
+      4. Update imports in test files: change import { X } from '../src/...' to import { X } from '../../src/...' (adjust path depth)
+      5. Verify vitest.config.ts includes: include: ['tests/**/*.test.ts']
+      6. Run: pnpm test:unit — all tests pass in new location
+      7. Commit: git add -A; git commit -m "cleanup(tests): relocate all test files to tests/ directory structure"
+      
+      VERIFICATION:
+      - All test files moved to tests/
+      - Directory structure matches src/
+      - Test imports updated
+      - All tests run and pass
+      - src/ contains only source code (no test files)
+      
+    gates:
+      - type: compile
+    max_retries: 2
+    on_fail: stop
+    depends_on: []
+
+  - id: p4-004-complete-agent-registry
+    phase: cleanup
+    description: "Complete agent-registry-seed.ts (17 → 170+ agents, all PIL + wired agents)"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      CLEANUP: agent-registry-seed.ts has only 17 entries. Platform has 170+ operational agents. Registry severely incomplete.
+      
+      REGISTRY COMPLETION SCOPE:
+      1. Read src/lib/agents/agent-registry-seed.ts in full. Note its current structure.
+      2. Scan src/lib/agents/ and src/lib/pil/agents/ for all *.ts agent files that extend BaseAgent.
+      3. For each agent, create registry entry:
+         {
+           id: uuid,
+           agentType: "ag-XX-name", // must match AgentType enum
+           name: "Agent Name",
+           family: "pil" | "primary" | "support",
+           description: "What this agent does",
+           isOperational: true,
+           route: "/api/agents/route-name" (if has route),
+           inputs: ["input1", "input2"],
+           outputs: ["output1", "output2"],
+           dependencies: ["agent-id-1"] (agents it depends on),
+           createdAt: now(),
+           lastVerified: now()
+         }
+      4. Iterate through all agents and build complete registry. Target: 170+ entries.
+      5. Verify each entry has matching AgentType enum value.
+      6. Test: POST /api/agents/registry — returns all 170+ agents with no null fields.
+      7. Create route GET /api/agents/registry to expose registry (read-only).
+      8. Commit: git add -A; git commit -m "cleanup(registry): complete agent registry from 17 to 170+ entries, all PIL and wired agents included"
+      
+      VERIFICATION:
+      - Registry has 170+ entries
+      - All entries have required fields (no nulls)
+      - All agentTypes exist in enum
+      - GET /api/agents/registry returns complete list
+      - All PIL agents included
+      - All wired agents from Phases 1-3 included
+      
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: stop
+    depends_on:
+      - p4-001-archive-ea-family
+      - p4-002-merge-duplicate-pairs
+
+  - id: p4-005-rebuild-governance-docs
+    phase: cleanup
+    description: "Rebuild BLUEPRINT, SCHEMA_REGISTRY, BEHAVIORAL_CONTRACTS with current state"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      CLEANUP: Governance docs created during build but may have stale sections. Rebuild to reflect Phases 1-4 completion.
+      
+      GOVERNANCE REBUILD SCOPE:
+      1. Review BLUEPRINT_v2.md. Update Architecture Deployed section to include:
+         - Phase 1: Scoring foundations (enum fixes, propensity, relationship, recursive learning, outcome loop)
+         - Phase 2: Partial completions (9 systems completed)
+         - Phase 3: Agent wiring (6 agents wired)
+         - Phase 4: Cleanup (EA archived, duplicates merged, tests relocated, registry completed)
+      2. Review SCHEMA_REGISTRY_v2.md. Add any new tables created in Phases 1-4:
+         - proven_narrative_shares (Phase 1)
+         - opportunity_fit_scores (Phase 3)
+         - opportunity_deadlines (Phase 3)
+         - legal_intelligence_findings (Phase 3)
+         - volunteer_hours (Phase 3)
+      3. Review BEHAVIORAL_CONTRACTS.md. Add canonical formula documentation (Phase 1-03):
+         - Section: "§19 Canonical Relationship Score Formula" with weights, decay, event values
+      4. Update STATE_OF_THE_BUILD_2026-09-01.md (copy from root to current):
+         - Add completion % for each phase
+         - Add "PHASES 1-4 COMPLETE" section with comprehensive summary
+         - Update "NEXT SESSION PRIORITIES" with post-Phase-4 work (Directives 1-6)
+      5. Commit: git add -A; git commit -m "docs(governance): rebuild all governance docs with Phases 1-4 completions"
+      
+      VERIFICATION:
+      - BLUEPRINT reflects all architecture changes
+      - SCHEMA_REGISTRY includes all new tables
+      - BEHAVIORAL_CONTRACTS documents canonical formulas
+      - STATE_OF_THE_BUILD updated with 4-phase completion status
+      - All docs internally consistent
+      
+    gates:
+      - type: file_exists
+        files: [BLUEPRINT_v2.md, SCHEMA_REGISTRY_v2.md, BEHAVIORAL_CONTRACTS.md, STATE_OF_THE_BUILD_2026-09-01.md]
+    max_retries: 2
+    on_fail: continue
+    depends_on:
+      - p4-004-complete-agent-registry
+
+  - id: p4-006-final-verification-and-close
+    phase: verify
+    description: "Final verification: all phases complete, all systems operational, governance updated"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      FINAL VERIFICATION CHECKLIST:
+      
+      PHASE 1 (Scoring Foundations):
+      ✅ Probability enum fixed, agent operational
+      ✅ Propensity scoring: all 49+ prospects scored
+      ✅ Relationship formula consolidated
+      ✅ Recursive learning cross-org isolation fixed
+      ✅ Outcome loop wired to learning trigger
+      
+      PHASE 2 (Partial Completions):
+      ✅ Board Packet Agent consuming dossiers
+      ✅ Email Intelligence Gmail webhook operational
+      ✅ Corporate Giving DNA 100+ profiles populated
+      ✅ FlightPath HUD rendering with stage colors
+      ✅ Donation Marketplace AI matching algorithm
+      ✅ Search Profiles page functional
+      ✅ KB Tabs labeled by category
+      ✅ Admin AutoApply job list visible
+      ✅ Nightly schedule rebuild job scheduled
+      
+      PHASE 3 (Agent Wiring):
+      ✅ Fit Analysis Agent wired and scoring
+      ✅ Deadline Extraction Agent extracting multiple deadlines
+      ✅ Compliance Check Agent blocking non-compliant submissions
+      ✅ Draft Generation Agent creating versioned narratives
+      ✅ Volunteer Coordination Agent matching + tracking
+      ✅ Legal Intelligence Agent flagging barriers
+      
+      PHASE 4 (Cleanup):
+      ✅ EA family archived, PIL infrastructure live
+      ✅ 4 duplicate pairs merged
+      ✅ All test files relocated to tests/
+      ✅ Agent registry complete: 170+ agents
+      
+      GOVERNANCE & OPERATIONS:
+      ✅ BLUEPRINT_v2.md updated with all phases
+      ✅ SCHEMA_REGISTRY_v2.md includes all new tables
+      ✅ BEHAVIORAL_CONTRACTS.md documents canonical formulas
+      ✅ STATE_OF_THE_BUILD.md records 4-phase completion
+      ✅ All agents in agent-registry-seed.ts
+      ✅ All routes documented and functional
+      
+      TESTING & DEPLOYMENT:
+      1. Full test suite: pnpm test:unit
+         Expected: 800+ tests pass, < 50 todo, 0 failed
+      2. Type check: pnpm tsc --noEmit
+         Expected: zero errors
+      3. Build: pnpm build
+         Expected: success, no warnings
+      4. Deploy: npx vercel deploy --prod
+         Expected: deployment successful, health check 200
+      5. E2E smoke: curl https://benavora.vercel.app/api/health
+         Expected: 200 OK, all subsystems healthy
+      
+      Generate final summary report:
+      - File: PHASES_1-4_COMPLETION_REPORT.md
+      - Content: 
+        * Executive summary of all 4 phases
+        * List of all agents (170+) with operational status
+        * List of all new tables with schema
+        * List of all new routes with endpoints
+        * Completion statistics (prompts executed, files created, gates passed)
+        * Recommendations for next work (Directives 1-6)
+      
+      Final commit: git add -A; git commit -m "cleanup(final): Phase 1-4 audit remediation complete, all agents operational, governance updated, ready for next session"
+      
+    gates:
+      - type: compile
+      - type: file_exists
+        files: [PHASES_1-4_COMPLETION_REPORT.md]
+    max_retries: 2
+    on_fail: continue
+    depends_on:
+      - p4-005-rebuild-governance-docs

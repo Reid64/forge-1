@@ -1,0 +1,81 @@
+project: benavora
+governance:
+- BLUEPRINT_v2.md
+- SCHEMA_REGISTRY_v2.md
+- AGENTS_v2.md
+- AUTONOMOUS_PLATFORM_VISION.md
+- FEATURE_REGISTRY_v2.md
+- BEHAVIORAL_CONTRACTS.md
+- STATE_OF_THE_BUILD.md
+- STANDING_DIRECTIVES.md
+prompts:
+- id: ci-001
+  name: Governance sync and continuous improvement engine schema
+  prompt: |
+    First sync governance docs: $repo = 'C:\Users\manag\Documents\benavora'; $forge = 'C:\Users\manag\Documents\FORGE\projects\benavora'; Get-ChildItem $repo -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName (Join-Path $forge $_.Name) -Force }
+
+    Read AUTONOMOUS_PLATFORM_VISION.md section on Autonomous Continuous Improvement Engine.
+    Read BEHAVIORAL_CONTRACTS.md sections 16-17 in full.
+
+    Create migration src/supabase/migrations/[NEXT]_continuous_improvement.sql:
+    CREATE TABLE IF NOT EXISTS improvement_proposals (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), proposal_type text NOT NULL CHECK (proposal_type IN ('prompt_optimization','agent_threshold','workflow_change','ui_improvement','data_quality')), title text NOT NULL, description text NOT NULL, evidence text NOT NULL, expected_impact text NOT NULL, risk_level text CHECK (risk_level IN ('low','medium','high')), status text DEFAULT 'proposed' CHECK (status IN ('proposed','approved','rejected','implemented','rolled_back')), confidence_score integer, proposed_at timestamptz DEFAULT now(), reviewed_at timestamptz, reviewed_by uuid REFERENCES profiles(id), implemented_at timestamptz);
+    COMMENT ON TABLE improvement_proposals IS 'Platform-wide improvement proposals from the self-improvement engine. No RLS -- platform owner only.';
+    CREATE INDEX idx_improvements_status ON improvement_proposals(status, proposed_at DESC);
+
+    CREATE TABLE IF NOT EXISTS agent_performance_metrics (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), agent_id text NOT NULL, metric_date date NOT NULL, runs_total integer DEFAULT 0, runs_successful integer DEFAULT 0, avg_confidence_score numeric, avg_items_processed numeric, decisions_requiring_review integer, decisions_auto_approved integer, created_at timestamptz DEFAULT now(), UNIQUE(agent_id, metric_date));
+    CREATE INDEX idx_agent_metrics_date ON agent_performance_metrics(agent_id, metric_date DESC);
+
+    Apply via Supabase SQL editor. Verify tables exist.
+    Commit: git add -A; git commit -m 'feat: continuous improvement engine schema -- improvement_proposals and agent_performance_metrics'; git push.
+
+- id: ci-002
+  name: AG-38 Self-Improvement Agent
+  prompt: |
+    Read src/lib/agents/autonomous-base.ts in full.
+    Read AUTONOMOUS_PLATFORM_VISION.md section on Autonomous Continuous Improvement Engine in full.
+    Read BEHAVIORAL_CONTRACTS.md sections 16-17 in full.
+
+    Create src/lib/agents/self-improvement-agent.ts. AG-38. This runs nightly at 4:00 AM using service role (platform-wide, not org-scoped).
+
+    HARD LIMIT comment at top: This agent NEVER modifies production code, prompts, or configurations directly. It ONLY proposes improvements that require explicit platform owner approval before implementation.
+
+    run(triggerSource):
+    1. startRun with null org_id (platform-level run).
+    2. Calculate agent_performance_metrics for yesterday: for each agent_id in agent_runs, count runs_total, runs_successful (status=completed), avg confidence_score, avg items_processed, decisions_requiring_review count, decisions_auto_approved count. Upsert into agent_performance_metrics for yesterday.
+    3. Identify underperforming agents: success_rate < 80% over last 7 days OR avg_confidence_score < 65 OR decisions_requiring_review / runs_total > 0.5.
+    4. Identify high-performing patterns: agent_decisions WHERE human_verdict=approved AND confidence_score >= 85 -- what do these have in common?
+    5. Call Claude (claude-sonnet-4-6, max_tokens 1500): provide 7-day agent performance summary, underperforming agents list, high-performing decision patterns. Ask: What specific improvements would increase success rates and confidence scores? Return JSON array of proposals: [{ proposal_type, title, description, evidence, expected_impact, risk_level, confidence_score }].
+    6. For each proposal with confidence_score >= 75: insert improvement_proposals with status=proposed.
+    7. If any high-risk proposals: create notification for platform owner immediately.
+    8. completeRun summary: metricsCalculated, underperformersFound, proposalsGenerated.
+
+    Register in worker/autonomous-orchestrator.ts at 4:00 AM slot (platform-level, runs once not per-org).
+    This file must be at least 220 lines.
+    Run pnpm tsc --noEmit, fix errors.
+    Commit: git add -A; git commit -m 'feat: AG-38 self-improvement agent nightly platform performance analysis and proposals'; git push.
+
+- id: ci-003
+  name: Improvement proposals UI and agent performance dashboard plus deploy
+  prompt: |
+    Read src/lib/agents/self-improvement-agent.ts in full.
+    CRITICAL: Inline style={{}} only. Hardcoded hex values. Canvas #D6E4F0.
+
+    Create src/app/(dashboard)/admin/improvements/page.tsx:
+    Header: Platform Improvement Proposals H1, subtitle AI-generated optimization recommendations pending your review.
+    Stats row: Total Proposed, Awaiting Review, Approved This Month, Implemented.
+    Agent Performance section (white card): table of agent_performance_metrics for last 7 days. Columns: Agent, Success Rate (colored bar), Avg Confidence, Decisions/Run, Review Rate. Color code: green >=90%, amber 70-89%, red <70%.
+    Proposals list: each proposal card (white, border-radius 12px, padding 24px, marginBottom 12px):
+      Header: proposal_type badge + risk_level badge (low=#10B981, medium=#F59E0B, high=#DC2626) + confidence_score.
+      Title bold 16px. Description 14px #374151. Evidence section italic. Expected Impact green callout box.
+      Action buttons: Approve (green #10B981) and Reject (red #EF4444) -- call PATCH /api/admin/improvements/[id].
+      Implemented proposals show green checkmark + implemented_at date.
+
+    Create src/app/api/admin/improvements/route.ts: GET returns improvement_proposals ordered by proposed_at DESC. Filter by status.
+    Create src/app/api/admin/improvements/[id]/route.ts: PATCH accepts { status: approved|rejected }. Sets reviewed_at, reviewed_by, status.
+
+    Add to admin nav: Improvements href /admin/improvements with count badge for proposed status.
+    Update FEATURE_REGISTRY_v2.md feature 225 status to BUILT.
+    Run pnpm tsc --noEmit. Run pnpm build, fix errors.
+    git add -A; git commit -m 'feat: improvement proposals UI agent performance dashboard'; git push.
+    npx vercel deploy --prod.
+    Report the production URL.

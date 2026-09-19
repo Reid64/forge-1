@@ -1,0 +1,71 @@
+project: benavora
+governance:
+- BLUEPRINT_v2.md
+- SCHEMA_REGISTRY_v2.md
+- AGENTS_v2.md
+- AUTONOMOUS_PLATFORM_VISION.md
+- FEATURE_REGISTRY_v2.md
+- STATE_OF_THE_BUILD.md
+- STANDING_DIRECTIVES.md
+prompts:
+- id: roi-001
+  name: Governance sync and ROI optimizer schema and tracking
+  prompt: |
+    First sync governance docs: $repo = 'C:\Users\manag\Documents\benavora'; $forge = 'C:\Users\manag\Documents\FORGE\projects\benavora'; Get-ChildItem $repo -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName (Join-Path $forge $_.Name) -Force }
+
+    Read AUTONOMOUS_PLATFORM_VISION.md section on ROI Optimization Engine.
+    Read SCHEMA_REGISTRY_v2.md for applications and outcomes tables.
+
+    Create migration src/supabase/migrations/[NEXT]_roi_optimizer.sql:
+    CREATE TABLE IF NOT EXISTS submission_variables (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), application_id uuid NOT NULL REFERENCES applications(id) ON DELETE CASCADE, org_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, submission_day_of_week integer CHECK (submission_day_of_week BETWEEN 0 AND 6), days_before_deadline integer, prompt_version text, word_count integer, attachment_count integer, has_budget boolean DEFAULT false, has_logic_model boolean DEFAULT false, has_board_list boolean DEFAULT false, narrative_readability_score numeric, executive_contact_name text, outcome_result text, outcome_amount numeric, created_at timestamptz DEFAULT now());
+    ALTER TABLE submission_variables ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY sub_vars_org ON submission_variables USING (org_id = (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+    CREATE INDEX idx_sub_vars_org ON submission_variables(org_id, outcome_result);
+
+    CREATE TABLE IF NOT EXISTS roi_insights (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, insight_type text NOT NULL, insight_description text NOT NULL, winning_pattern text, losing_pattern text, sample_size integer, confidence numeric, recommended_action text, generated_at timestamptz DEFAULT now());
+    ALTER TABLE roi_insights ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY roi_insights_org ON roi_insights USING (org_id = (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+    Apply via Supabase SQL editor. Verify tables exist.
+    Commit: git add -A; git commit -m 'feat: ROI optimizer schema submission_variables and roi_insights'; git push.
+
+- id: roi-002
+  name: AG-39 ROI Optimizer agent and variable tracking
+  prompt: |
+    Read src/lib/agents/autonomous-base.ts in full.
+    Read src/lib/agents/outcome-analyzer-agent.ts in full for patterns.
+
+    Create src/lib/agents/roi-optimizer-agent.ts extending AutonomousAgent. AG-39.
+
+    Two functions:
+    1. trackSubmissionVariables(applicationId: string): Called when an application is submitted. Extracts and records all measurable variables into submission_variables: submission_day_of_week (from submitted_at), days_before_deadline (opportunity.deadline - submitted_at), word_count (draft_content word count), attachment_count (application_documents count), has_budget (budget_data not null), narrative_readability_score (call Claude to score readability 0-100 in one sentence).
+
+    2. run(triggerSource): Monthly ROI analysis. For each org with >= 10 submission_variables records: load all records with outcome_result (join to outcomes). Use Claude (max_tokens 1000) to analyze correlations: which submission day has highest win rate, which word count range wins most, which attachment combinations correlate with awards. For each significant pattern (sample >= 5, correlation >= 0.6): insert roi_insights record. logDecision.
+
+    Also create src/app/api/autonomous/track-submission/route.ts: POST { applicationId }. Calls trackSubmissionVariables. Called from application submission flow.
+
+    Update application submission route (find where submitted_at gets set) to call /api/autonomous/track-submission after successful submission.
+
+    Run pnpm tsc --noEmit, fix errors.
+    Commit: git add -A; git commit -m 'feat: AG-39 ROI optimizer -- submission variable tracking and correlation analysis'; git push.
+
+- id: roi-003
+  name: ROI optimizer UI insights dashboard plus deploy
+  prompt: |
+    Read src/lib/agents/roi-optimizer-agent.ts in full.
+    CRITICAL: Inline style={{}} only. Hardcoded hex values. Canvas #D6E4F0.
+
+    Create src/app/api/reports/roi/route.ts: GET returns roi_insights for org + aggregated submission_variables stats (win rate by day, avg word count winners vs losers, attachment correlation).
+
+    Create src/app/(dashboard)/reports/roi/page.tsx:
+    Header: ROI Optimization Insights H1, subtitle Data-driven patterns from your submission history.
+    Stats row: Applications Tracked, Win Rate, Best Submission Day, Optimal Word Count Range.
+    Insights list (white cards): each insight with insight_type badge, description, winning_pattern in green callout, losing_pattern in red callout, sample_size and confidence badges, recommended_action prominent button.
+    Submission Patterns section: simple visual breakdowns (inline SVG bar charts): Win Rate by Day of Week (Mon-Sun bars), Word Count Distribution (winners vs losers), Attachment Impact (with vs without budget/logic model).
+
+    Add nav under Reports: ROI Insights href /reports/roi.
+    Update FEATURE_REGISTRY_v2.md feature 227 status to BUILT.
+    Run pnpm tsc --noEmit. Run pnpm build, fix errors.
+    git add -A; git commit -m 'feat: ROI optimizer insights dashboard submission pattern visualization'; git push.
+    npx vercel deploy --prod.
+    Report the production URL.

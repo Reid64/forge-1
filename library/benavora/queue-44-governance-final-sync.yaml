@@ -1,0 +1,50 @@
+project: benavora
+github_repo: Reid64/benavora
+supabase_project_ref: vbjplpquqxxfbpazyalt
+vercel_project_name: benavora
+domain: benavora.com
+
+governance:
+  - STATE_OF_THE_BUILD.md
+  - SESSION_STATE.md
+  - FEATURE_REGISTRY_v2.md
+  - STANDING_DIRECTIVES.md
+
+settings:
+  max_retries_per_prompt: 3
+  build_model: claude-sonnet-4-6-20250514
+  review_model: claude-sonnet-4-6-20250514
+  report_model: claude-haiku-4-5-20251001
+  permission_mode: acceptEdits
+  allowed_tools: "*"
+  review_frequency: 5
+  governance_check_frequency: 10
+
+prompts:
+
+  - id: final-sync-001
+    phase: build
+    description: "Consolidated handoff doc for tonight's four queues, real outcomes only"
+    prompt: |
+      Run pnpm run build and pnpm tsc --noEmit one final time and confirm both are clean before writing anything.
+
+      Read STATE_OF_THE_BUILD.md and SESSION_STATE.md in full - they should already contain real entries from queue-40 (T4-T8), queue-41 (registry reconciliation), queue-42 (AG-19 flagged wiring), and queue-43 (outreach audit), since each of those queues' final prompt updated them.
+
+      Create C:\Users\manag\Documents\benavora\BENAVORA_SESSION_HANDOFF_2026-08-12.md, following the exact structure of BENAVORA_SESSION_HANDOFF_2026-08-07.md (read that file first as the template), with these sections:
+
+      1. What was accomplished tonight, pulled from the real governance entries each queue wrote - do not re-describe from memory of the prompts, read what was actually recorded.
+      2. Explicit callout, in its own subsection: "AG-19 flag is live but OFF for every production org, including Faith Foundation. Turning it on for any real org is Reid's decision, not made tonight."
+      3. Explicit callout, in its own subsection, quoting OUTREACH_CONSOLIDATION_AUDIT.md's full "NEEDS REID'S DECISION" list verbatim.
+      4. Any row from DATED_VERIFICATION_2026-08-12.md that came back STALE and was corrected.
+      5. Known open items carried forward, in priority order, same style as the 2026-08-07 doc's own "Known Open Items" section.
+
+      Do not soften, omit, or summarize past accuracy any item that a queue deliberately left undone or deferred - the whole point of this doc is that the next session (human or AI) can trust it completely without re-verifying from scratch.
+    expected_outputs:
+      - BENAVORA_SESSION_HANDOFF_2026-08-12.md
+    gates:
+      - type: compile
+      - type: build
+      - type: file_exists
+        files: [BENAVORA_SESSION_HANDOFF_2026-08-12.md]
+    max_retries: 3
+    on_fail: halt

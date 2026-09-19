@@ -1,0 +1,339 @@
+project: benavora
+github_repo: Reid64/benavora
+supabase_project_ref: vbjplpquqxxfbpazyalt
+vercel_project_name: benavora
+domain: benavora.com
+
+governance:
+  - BLUEPRINT_v2.md
+  - SCHEMA_REGISTRY_v2.md
+  - BEHAVIORAL_CONTRACTS.md
+  - STATE_OF_THE_BUILD_2026-09-01.md
+  - STANDING_DIRECTIVES.md
+
+settings:
+  max_retries_per_prompt: 3
+  build_model: claude-sonnet-4-6-20250514
+  review_model: claude-sonnet-4-6-20250514
+  report_model: claude-haiku-4-5-20251001
+  permission_mode: acceptEdits
+  allowed_tools: "*"
+
+prompts:
+
+  - id: p2-001-board-packet-agent-refresh
+    phase: completion
+    description: "Refresh Board Packet Agent to consume PIL dossiers and generate current board context"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      PARTIAL COMPLETION: Board Packet Agent exists but pulls from stale pil_prospects table (no intelligence). Must be rewired to consume from pil_prospect_dossiers (fully enriched, scored, ranked).
+      
+      FIX SCOPE:
+      1. Read src/lib/pil/agents/app/BEN-APP-01.ts (Application Profile Orchestrator) to understand dossier structure.
+      2. Find board-packet-agent.ts. Read it in full.
+      3. Update data source: change pil_prospects queries to pil_prospect_dossiers queries.
+      4. Board packet should include: prospect profile, relationship score, success probability, priority recommendation, personalized pitch, risk factors, relationship strategy.
+      5. Generate board packet in markdown format with sections: Executive Summary, Prospect Profile, Intelligence Summary, Recommendation, Next Steps.
+      6. Add route POST /api/agents/board-packet accepting { prospect_id } and returning { board_packet_markdown, generated_at }.
+      7. Test: Create test prospect with full dossier. Generate board packet. Verify all sections populated with dossier data.
+      8. Commit: git add -A; git commit -m "fix(agents): refresh board-packet-agent to consume PIL dossiers"
+      
+      VERIFICATION:
+      - Agent reads from pil_prospect_dossiers
+      - Board packet includes all 6 sections
+      - Route /api/agents/board-packet functional
+      - Test packet generated with real dossier data
+      
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: stop
+    depends_on: []
+
+  - id: p2-002-email-intelligence-gmail-webhook
+    phase: completion
+    description: "Wire Gmail webhook to email intelligence agent (currently dead-letter)"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      PARTIAL COMPLETION: Email intelligence agent exists but no webhook receives emails from Gmail. Emails sent to funder contacts never analyzed for intelligence.
+      
+      FIX SCOPE:
+      1. Read src/lib/agents/email-intelligence-agent.ts in full.
+      2. Check if webhook exists: ls -la src/app/api/webhooks/gmail/route.ts
+      3. If missing, create it: POST /api/webhooks/gmail receiving Gmail push notifications (topic: projects/benavora/topics/gmail-emails).
+      4. Webhook must: extract sender (funder contact), subject, body, date; call EmailIntelligenceAgent; store analysis in email_intelligence table.
+      5. EmailIntelligenceAgent should: extract funder sentiment, funding signals, relationship cues, next-step indicators.
+      6. Update contact.last_contacted_at when email received.
+      7. Test: Send test email from external account to your org email. Verify webhook fires, analysis stored in email_intelligence table.
+      8. Commit: git add -A; git commit -m "fix(webhooks): wire Gmail webhook to email intelligence agent"
+      
+      VERIFICATION:
+      - Webhook route exists at /api/webhooks/gmail
+      - Accepts Gmail push notifications
+      - Invokes EmailIntelligenceAgent
+      - email_intelligence table populated
+      - Test email analyzed within 2 minutes
+      
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: stop
+    depends_on: []
+
+  - id: p2-003-corporate-giving-dna-full-population
+    phase: completion
+    description: "Complete Corporate Giving DNA full population (currently 0% data)"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      PARTIAL COMPLETION: Corporate Giving DNA agent exists. corporate_giving_dna table exists. Zero records populated. No data ingestion ever run.
+      
+      FIX SCOPE:
+      1. Read src/lib/agents/corporate-giving-dna-agent.ts in full.
+      2. Check corporate_giving_dna table schema: grep -A 30 "CREATE TABLE corporate_giving_dna" src/supabase/migrations/*.sql
+      3. Find data source: SEC EDGAR corporate giving, Foundation Center corporate giver profiles, GiveWell corporate donors, corporate foundation 990s.
+      4. Create ingestion script: src/scripts/ingest-corporate-giving-dna.ts
+      5. Script should: scrape/ingest corporate giving patterns, giving size ranges, program focus areas, geographic focus, application requirements.
+      6. Populate corporate_giving_dna table with 100+ corporate giver profiles (Fortune 500 foundations + major corp giving programs).
+      7. Test: Run pnpm tsx src/scripts/ingest-corporate-giving-dna.ts. Verify 100+ rows in corporate_giving_dna.
+      8. Create route POST /api/agents/corporate-giving-dna accepting { organization_id } and matching org to relevant corporate givers.
+      9. Commit: git add -A; git commit -m "feat(intelligence): populate corporate giving DNA table and create matching agent"
+      
+      VERIFICATION:
+      - corporate_giving_dna table has 100+ records
+      - Agent returns relevant corporate givers for test org
+      - Route /api/agents/corporate-giving-dna functional
+      - Data includes giving size, focus areas, requirements
+      
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: stop
+    depends_on: []
+
+  - id: p2-004-flightpath-hud-rendering
+    phase: completion
+    description: "Complete FlightPath HUD rendering with stage colors and progress indicators"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      PARTIAL COMPLETION: FlightPath HUD component exists but rendering incomplete. Stage colors not applied. Progress indicators missing.
+      
+      FIX SCOPE:
+      1. Read src/components/FlightPathHUD.tsx in full.
+      2. From STANDING_DIRECTIVES.md, stage colors are: Onboard=#0077B6, Research=#0096C7, Opportunities=#6B48CC, Grant Narratives=#10B981, AutoApply=#F59E0B, Donor Discovery=#EF4444
+      3. Rewrite component with inline style={{ backgroundColor: '#0077B6' }} (never CSS variables, never Tailwind tokens).
+      4. Each stage card must show: stage name, color badge, count of items in stage, progress bar (items completed / total), estimated days remaining.
+      5. Visual polish: cards with shadows, rounded corners, hover states, click to expand details.
+      6. Test in browser: verify all 6 stages render with correct colors, counts, progress bars.
+      7. Commit: git add -A; git commit -m "fix(ui): complete FlightPath HUD rendering with stage colors and progress"
+      
+      VERIFICATION:
+      - All 6 stage cards render with correct hex colors
+      - Progress bars show completion % per stage
+      - Item counts accurate (from database queries)
+      - Hover states functional
+      - Visual verified in browser
+      
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: stop
+    depends_on: []
+
+  - id: p2-005-donation-marketplace-ai-matching
+    phase: completion
+    description: "Complete donation marketplace AI matching algorithm (currently stub)"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      PARTIAL COMPLETION: Donation Marketplace agent exists. Matching logic is stub (returns all opportunities). No scoring, no ranking.
+      
+      FIX SCOPE:
+      1. Read src/lib/agents/donation-marketplace-agent.ts in full.
+      2. Implement matching algorithm: for each funder, score all opportunities on:
+         - Category match (funder.category vs opportunity.category): 0-30 points
+         - Geographic alignment (funder.geographic_focus vs opportunity.service_area): 0-25 points
+         - Funding size alignment (funder.annual_giving_budget vs opportunity.requested_amount): 0-20 points
+         - Relationship status (funder relationship_score): 0-15 points
+         - Strategic priority (org priority vs funder focus): 0-10 points
+      3. Rank opportunities by total score (0-100).
+      4. Return top 10 matches with scores and explanation for each.
+      5. Test: Create test funder with known preferences. Run matcher. Verify top matches align with preferences.
+      6. Create route POST /api/agents/donation-marketplace-match accepting { funder_id } and returning ranked opportunities.
+      7. Commit: git add -A; git commit -m "feat(agents): implement donation marketplace AI matching with scoring"
+      
+      VERIFICATION:
+      - Matching algorithm implemented with 5 scoring factors
+      - Scores reasonable (0-100 range)
+      - Top matches make sense for test funder
+      - Route functional
+      - Test verified with real data
+      
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: stop
+    depends_on: []
+
+  - id: p2-006-search-profiles-ui-fix
+    phase: completion
+    description: "Fix search profiles page (currently broken, no results render)"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      PARTIAL COMPLETION: /search/profiles page exists but broken. Search executes but results don't render. Component has empty render logic.
+      
+      FIX SCOPE:
+      1. Read src/app/search/profiles/page.tsx in full.
+      2. Read src/components/SearchResults.tsx.
+      3. Add search input field: text input for funder name/category, filters for category/region.
+      4. On search: call GET /api/search/funders?q={query}&category={category}&region={region}
+      5. Render results as table: columns = Name, Category, Annual Budget, Relationship Score, Last Contacted, Actions (View Profile, Add to Opportunity).
+      6. Pagination: show 20 results per page.
+      7. Empty state: "No funders found. Try adjusting your search."
+      8. Test in browser: search for test funder, verify results display.
+      9. Commit: git add -A; git commit -m "fix(ui): repair search profiles page and results rendering"
+      
+      VERIFICATION:
+      - Search input and filters render
+      - Results table populated after search
+      - Pagination works
+      - Empty state displays correctly
+      - Verified in browser
+      
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: stop
+    depends_on: []
+
+  - id: p2-007-kb-tabs-label-fix
+    phase: completion
+    description: "Fix knowledge base tabs labels (currently generic, need category names)"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      PARTIAL COMPLETION: Knowledge base tabs exist but labeled "Tab 1, Tab 2, Tab 3". Should be labeled by knowledge_base_category enum.
+      
+      FIX SCOPE:
+      1. Read src/components/KnowledgeBaseTabs.tsx in full.
+      2. From SCHEMA_REGISTRY_v2.md, knowledge_base_category enum values: mission, vision, need_statement, program_description, impact, capacity, sustainability, partnerships, budget_justification, organizational_history, custom
+      3. Update tab labels to use category names instead of generic "Tab N".
+      4. Each tab shows knowledge base entries for that category.
+      5. Empty state per tab: "No {category} content yet. Add from dashboard."
+      6. Test: verify all tabs render with correct category names.
+      7. Commit: git add -A; git commit -m "fix(ui): update knowledge base tabs with category labels"
+      
+      VERIFICATION:
+      - All tabs labeled with knowledge_base_category names
+      - Correct content renders per tab
+      - Empty states display when no content
+      - Verified in browser
+      
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: stop
+    depends_on: []
+
+  - id: p2-008-admin-autoapply-job-list
+    phase: completion
+    description: "Add admin view for AutoApply job history and queue status"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      PARTIAL COMPLETION: AutoApply queue populator exists. Admin has no visibility into job history, queue status, or failure reasons.
+      
+      FIX SCOPE:
+      1. Create route GET /api/admin/autoapply/jobs returning paginated list of autoapply submission queue jobs.
+      2. Each job includes: id, prospect_name, opportunity_name, status (pending/submitted/failed), created_at, submitted_at, error_message, retry_count.
+      3. Create route GET /api/admin/autoapply/stats returning: total_pending, total_submitted, total_failed, avg_retry_count, oldest_pending_job_age.
+      4. Create page src/app/admin/autoapply/page.tsx displaying:
+         - Stats cards (pending, submitted, failed counts)
+         - Job list table with filters (status, date range, prospect name)
+         - Action buttons: Retry Failed, View Details, Clear Old Jobs
+      5. Test: verify admin can see queue status and job history.
+      6. Commit: git add -A; git commit -m "feat(admin): add autoapply job history and queue visibility"
+      
+      VERIFICATION:
+      - Stats routes return correct data
+      - Admin page displays stats and job list
+      - Filters work
+      - Action buttons functional
+      - Verified in browser
+      
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: stop
+    depends_on: []
+
+  - id: p2-009-nightly-schedule-rebuild
+    phase: completion
+    description: "Create nightly schedule rebuild job (currently never runs)"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      PARTIAL COMPLETION: Schedule-based opportunities (monthly/quarterly deadlines) exist. No job rebuilds schedules nightly. Deadlines can become stale.
+      
+      FIX SCOPE:
+      1. Create new worker job src/worker/jobs/rebuild-schedules.ts
+      2. Job should: query all opportunities with deadline_type = 'application_deadline', recalculate deadline_days_remaining, update opportunity.next_action_date.
+      3. Mark opportunities as 'expired' if deadline_days_remaining <= 0.
+      4. Create audit log entry in schedule_audit table: { opportunity_id, old_deadline, new_deadline, expired_status_change, executed_at }.
+      5. Register in Railway worker: schedule to run daily at 2 AM UTC (9 PM CST previous day).
+      6. Test: manually trigger job, verify opportunities updated.
+      7. Commit: git add -A; git commit -m "feat(worker): add nightly schedule rebuild job to keep deadlines current"
+      
+      VERIFICATION:
+      - Job reads all opportunities with deadlines
+      - Recalculates deadline_days_remaining
+      - Marks expired opportunities
+      - Audit log populated
+      - Scheduled in Railway
+      - Manual test successful
+      
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: stop
+    depends_on: []
+
+  - id: p2-verify-all-completions
+    phase: verify
+    description: "Verify all 9 partial systems completed and integrated"
+    prompt: |
+      Project root: C:\Users\manag\Documents\benavora
+      
+      VERIFICATION CHECKLIST:
+      1. Board Packet Agent: POST /api/agents/board-packet generates full board packet from dossier
+      2. Email Intelligence: Gmail webhook fires, EmailIntelligenceAgent executes, email_intelligence table populated
+      3. Corporate Giving DNA: 100+ corporate giver profiles in table, matching agent functional
+      4. FlightPath HUD: All 6 stages render with correct colors, progress bars show completion
+      5. Donation Marketplace: Matching algorithm scores and ranks opportunities (0-100)
+      6. Search Profiles: Search page functional, results render in table, pagination works
+      7. KB Tabs: All category tabs labeled correctly, empty states display
+      8. Admin AutoApply: Job list and stats visible, filters functional
+      9. Nightly Schedules: Job scheduled in Railway, manual test updates opportunities
+      10. Full test suite: pnpm test:unit passes, no regressions
+      11. Deployment: npx vercel deploy --prod succeeds
+      
+      Update STATE_OF_THE_BUILD.md:
+      - Section: PHASE 2 COMPLETIONS
+      - List all 9 systems with "✅ VERIFIED" status
+      - Record gate results: 9/9 prompts passed
+      - Update "NEXT SESSION PRIORITIES" with Phase 3 scope
+      
+      Commit: git add -A; git commit -m "docs: Phase 2 partial completions verified, all 9 systems functional"
+      
+    gates:
+      - type: compile
+      - type: file_exists
+        files: [STATE_OF_THE_BUILD.md]
+    max_retries: 2
+    on_fail: continue
+    depends_on:
+      - p2-009-nightly-schedule-rebuild

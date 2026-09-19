@@ -1,0 +1,19 @@
+project: benavora
+governance:
+- SCHEMA_REGISTRY_v2.md
+- STATE_OF_THE_BUILD.md
+- STANDING_DIRECTIVES.md
+prompts:
+- id: data-xml-001
+  name: Governance sync and fix enrich-990-xml.ts for local ZIP processing
+  prompt: |
+    First: sync all governance docs: $repo = 'C:\Users\manag\Documents\benavora'; $forge = 'C:\Users\manag\Documents\FORGE\projects\benavora'; Get-ChildItem $repo -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName (Join-Path $forge $_.Name) -Force }
+
+    Read scripts/enrich-990-xml.ts in full.
+
+    Verify the script reads ZIPs from C:\Users\manag\Downloads\Recent Downloads\irs-990-zips\ without any HTTP fetch calls to IRS.gov. If any fetch/download code remains remove it. Verify checkpoint logic via progress.json. Verify it parses EIN, website, officer_name, officer_title, revenue_amount, asset_amount, employee_count, mission from XML. Verify it upserts into nonprofits matching on ein and never overwrites existing website if one exists. Fix any issues. Add detailed per-ZIP logging: files extracted, EINs matched, records updated.
+
+    Create scripts/check-enrichment-detailed.ts: queries nonprofits table for counts of total, enriched, with website, with officer_name, with mission, with revenue_amount, by state top 10. Output formatted table. Add package.json script check:enrichment.
+
+    Run pnpm tsc --noEmit, fix errors.
+    Commit: git add -A; git commit -m 'fix: enrich-990-xml local ZIP processing verified and detailed enrichment status script'; git push.

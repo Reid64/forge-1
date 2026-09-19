@@ -1,0 +1,151 @@
+governance:
+- STATE_OF_THE_BUILD.md
+- SESSION_STATE.md
+- STANDING_DIRECTIVES.md
+project: benavora
+settings:
+  max_retries_per_prompt: 2
+  permission_mode: acceptEdits
+prompts:
+- id: ar-18-1-committed-work-gate
+  name: Phase 18.1 A gate that proves the work landed, not that it exists
+  description: AR-10.3 passed all four gates with its migration live in production and its code uncommitted
+  phase: "18"
+  prompt: |
+    BENAVORA - PHASE 18.1 - GATES THAT PROVE WORK LANDED
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    OBSERVED 2026-09-18, 04:59. ar-10-3-budget-teeth passed compile, test,
+    file_exists AND its shell gate. Its build agent had ended mid-sentence
+    waiting on a background test. Migration 198 was already applied to
+    PRODUCTION - cost_budgets.period_start is live - while the migration file
+    and the code calling its new RPC sat UNCOMMITTED. Production schema was
+    ahead of source control, and the next agent reading the repo would have
+    seen no period logic and quite possibly written a conflicting migration.
+
+    FORGE gates the working tree, not whether work landed. Four gates green,
+    nothing shipped.
+
+    BUILD scripts/audit/forge-gates/work-landed.mjs asserting:
+      1. `git status --porcelain` shows no modified or untracked files under
+         src/, worker/ or supabase/migrations/. Documentation and evidence
+         files may be listed as allowed exceptions, named explicitly.
+      2. HEAD is not behind origin/main - the work is pushed, not merely
+         committed.
+      3. Every migration file present on disk is recorded in
+         supabase_migrations.schema_migrations, AND every applied migration
+         has a file. Drift in EITHER direction fails: an applied migration
+         with no file is what happened here; a file never applied is the
+         mirror defect.
+    Report which check failed and name the exact files. An operator reading
+    the failure must know what to do without investigating.
+
+    SELF-TEST BEFORE SHIPPING, both directions - this is non-negotiable and is
+    the discipline that caught three gate bugs on 2026-09-17. Build a fixture,
+    prove it passes clean, then prove it catches: an uncommitted source file,
+    an unpushed commit, a migration applied with no file, and a file never
+    applied. Report the pass and catch counts.
+
+    DO NOT EDIT THE QUEUE FILES. Every downstream queue - AR-18.2, AR-14,
+    AR-15, AR-16, AR-17 and AR-19 - already carries this gate as its LAST gate,
+    wired in on 2026-09-18 before this run started. 50 prompts depend on the
+    exact invocation `node scripts/audit/forge-gates/work-landed.mjs` run from
+    the project root with no arguments, exiting 0 on pass and non-zero on fail.
+    BUILD TO THAT INTERFACE. If you change it, 50 gates break. Instead, verify:
+    grep the queue directory, count the prompts carrying the gate, and report
+    the number. If it is not 50, say so rather than editing anything - the queue
+    files are outside the project root and outside this commit's scope.
+
+    ALSO FIX THE UNDERLYING BEHAVIOUR: five of sixteen prompts in the
+    2026-09-18 run ended mid-sentence in a wait state. Record in
+    STANDING_DIRECTIVES.md that a build agent must commit and push before
+    reporting, and must never end a turn with work in the tree.
+
+    INCREMENTAL TESTING CHECKPOINT
+    Run the gate against the live repo and report what it says right now.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    STANDING_DIRECTIVES.md.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm test. Real numbers. Then state the gate's
+    self-test results, both directions, and how many queue files now carry it.
+
+    COMMIT (scoped - never `git add -A`)
+    git add scripts/audit/forge-gates STANDING_DIRECTIVES.md STATE_OF_THE_BUILD.md SESSION_STATE.md
+    git commit -m "[FORGE] AR-18.1: work-landed gate - committed, pushed, and no migration drift in either direction"
+    git push origin main
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-18-2-deploy-verification
+  name: Phase 18.2 Stop ending every queue with production drift unchecked
+  description: Nine consecutive queues have reported INDETERMINATE
+  phase: "18"
+  prompt: |
+    BENAVORA - PHASE 18.2 - REAL DEPLOY VERIFICATION
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Every queue since 2026-09-17 has ended with:
+      verify-deployment: INDETERMINATE - VERCEL_TOKEN and/or
+      VERCEL_PROJECT_ID are not set, cannot query production deployment state.
+    Nine consecutive queues. Production drift has not been checked once.
+
+    AR-8.3 documented what is needed in .env.local.example without inventing
+    values, which was correct. This prompt makes it actually work.
+
+    STEP 1 - Determine what scripts/verify-deployment.ts genuinely needs.
+    AR-8.3 recorded a known wrong-team CLI blocker - read that note first
+    rather than rediscovering it.
+
+    STEP 2 - Use the Vercel CLI, never the browser UI. If a token can be
+    obtained non-interactively from an existing CLI login, use it. If it
+    genuinely requires Reid to create one, STOP and say exactly what he must
+    do, in one short instruction, and leave the script reporting INDETERMINATE
+    honestly. DO NOT invent, guess or hardcode a token, and do not make the
+    script report a pass it has not earned.
+
+    STEP 3 - RAILWAY TOO. The worker auto-deploys from GitHub, which this
+    programme discovered late and only from a screenshot. Deploy verification
+    should cover both surfaces: is the Vercel production deployment at HEAD,
+    and is the Railway worker running a build from HEAD? The Railway history
+    shows deploys marked SKIPPED with "No changes to watched files" - so the
+    worker can silently be running older code than the app. That is exactly
+    the blind spot that made several fixes look live when they were not.
+
+    STEP 4 - MAKE THE FAILURE MODE HONEST. Three outcomes, never two:
+    CONFIRMED (both surfaces at HEAD), DRIFTED (named surface behind, with the
+    commit it is on), INDETERMINATE (cannot check, with the reason). Today
+    everything collapses to INDETERMINATE and gets ignored.
+
+    INCREMENTAL TESTING CHECKPOINT
+    Run it and report the actual outcome for both surfaces right now.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    STANDING_DIRECTIVES.md (DIRECTIVE-019) and .env.local.example.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm test. Real numbers. Then state, for Vercel and for
+    Railway separately: is production at HEAD, and if you could not tell,
+    exactly what is missing.
+
+    COMMIT (scoped - never `git add -A`)
+    git add scripts .env.local.example STANDING_DIRECTIVES.md STATE_OF_THE_BUILD.md SESSION_STATE.md
+    git commit -m "[FORGE] AR-18.2: deploy verification covers Vercel and Railway with CONFIRMED/DRIFTED/INDETERMINATE"
+    git push origin main
+  gates:
+  - type: compile
+  - type: test
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt

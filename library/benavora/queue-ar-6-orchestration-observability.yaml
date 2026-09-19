@@ -1,0 +1,518 @@
+governance:
+- STATE_OF_THE_BUILD.md
+- SESSION_STATE.md
+- BLUEPRINT_v2.md
+- SCHEMA_REGISTRY_v2.md
+- AGENTS_v2.md
+project: benavora
+settings:
+  max_retries_per_prompt: 2
+  permission_mode: acceptEdits
+prompts:
+- id: ar-6-1-extend-alerts
+  name: Phase 6.1 Extend the alerts table, do not fork it
+  description: Add the eight orchestration alert types to the live alerts table instead of building a second alert inbox
+  phase: "6"
+  prompt: |
+    BENAVORA AGENT REMEDIATION - PHASE 6.1 - EXTEND ALERTS
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    PREREQUISITE: queue ar-5-cost-consolidation complete.
+
+    WHAT THE SPEC ASKS FOR AND WHY IT IS WRONG HERE. The Orchestration Logging
+    and Alerting Specification v1.0 proposes a new orchestration_alerts table
+    with acknowledge, dismiss, severity and dedup. public.alerts already has
+    every one of those and is firing in production right now.
+
+    LIVE FACTS verified against project vbjplpquqxxfbpazyalt on 2026-09-17:
+      - public.alerts holds 1,806 rows. The most recent 'system' alert was
+        written this morning.
+      - Columns: id, organization_id, type (enum alert_type), severity (enum
+        alert_severity), message, link, is_read, read_at, is_dismissed,
+        dismissed_at, snoozed_until, dedup_key, opportunity_id,
+        application_id, deadline_id, created_by, created_at, updated_at.
+      - alert_type enum values today: deadline_due, new_opportunity,
+        application_action, draft_review, system.
+      - alert_severity enum values today: info, warning, critical.
+      - Indexes: alerts_pkey, uq_alerts_org_dedup (unique), idx_alerts_org,
+        idx_alerts_type, idx_alerts_active.
+    So acknowledge is is_read/read_at, dismiss is is_dismissed/dismissed_at,
+    snooze is snoozed_until, and noise suppression is uq_alerts_org_dedup.
+    A second alert table would mean two inboxes, two dashboards and 1,806 rows
+    of history stranded behind the wrong one.
+
+    DO NOT CREATE orchestration_alerts. Extend what exists.
+
+    STEP 1 - MIGRATION, ENUM VALUES ONLY.
+    Add these eight values to alert_type:
+      task_failed, cost_overage, schema_mismatch, state_drift, rate_limit,
+      timeout, rollback, manual_review_required
+    This project runs PostgreSQL 17.6. ALTER TYPE ... ADD VALUE is allowed
+    inside a transaction on PG12+, BUT THE NEW VALUE CANNOT BE USED IN THE
+    SAME TRANSACTION THAT ADDED IT. Therefore this migration contains ONLY the
+    eight ALTER TYPE statements - no INSERT, no function body that references a
+    new value, no trigger definition. Anything that uses them ships in the
+    next migration file. Getting this wrong produces
+    "unsafe use of new value of enum type" at migration time.
+
+    STEP 2 - MIGRATION, COLUMNS.
+    ALTER TABLE public.alerts ADD COLUMN orchestration_id uuid (nullable) and
+    ADD COLUMN notified_at timestamptz (nullable). Index orchestration_id.
+    notified_at is the delivery idempotency marker used by prompt 6.4 - add it
+    now, in this phase, not later.
+
+    STEP 3 - TYPES.
+    src/types/database.ts is HAND-MAINTAINED, not generated (its own header
+    says so, and package.json has no `supabase gen types` script). Add the
+    eight values to the alert_type union there by hand.
+    Then: src/lib/alerts/alerts-service.ts declares
+    ALERT_TYPE_LABEL: Record<AlertType, string>. Adding enum values will break
+    `pnpm typecheck` until every new value has a label. That is the compiler
+    doing its job - add the eight labels. Check BadgeCategory and AlertCounts
+    in the same file and extend them if the new types need to appear in nav
+    counts; if they should not, say so explicitly in your report and leave
+    them alone.
+
+    STEP 4 - DETERMINISTIC DEDUP KEYS.
+    Several existing agents build dedup_key with crypto.randomUUID() appended
+    (src/lib/agents/base-agent.ts:232, src/lib/agents/autonomous-base.ts:292,
+    src/lib/agents/deadline-prediction-agent.ts:560 and others). That makes
+    every key unique, which means uq_alerts_org_dedup never fires and those
+    alerts never dedup at all. DO NOT COPY THAT PATTERN. Add orchestration
+    dedup key builders to the existing `dedupKeys` registry in
+    alerts-service.ts, keyed on the facts that make two occurrences the same
+    event - for example
+    `orchestration:task_failed:${orchestrationId}:${agentType}` - with NO
+    random component. Do not change the existing agents' keys in this prompt;
+    log the finding in your report as separate follow-up work.
+
+    INCREMENTAL TESTING CHECKPOINT
+    Write src/__tests__/unit/orchestration-alert-types.test.ts asserting:
+      1. All eight new types are present in the AlertType union.
+      2. ALERT_TYPE_LABEL has a non-empty label for each of the eight.
+      3. The same orchestration event produces a byte-identical dedup_key on
+         two separate calls - a direct guard on STEP 4.
+    Run: pnpm vitest run src/__tests__/unit/orchestration-alert-types.test.ts
+    All three green.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    SCHEMA_REGISTRY_v2.md and AGENTS_v2.md with the new enum values and the
+    two new alerts columns. Verified state only.
+
+    END-OF-RUN VERIFICATION
+    Run pnpm typecheck, pnpm run build, pnpm test. Report real numbers. Then
+    state plainly how many alert tables this platform now has.
+
+    COMMIT (scoped - never `git add -A`)
+    git add supabase/migrations src/types/database.ts src/lib/alerts src/__tests__/unit/orchestration-alert-types.test.ts
+    git commit -m "[FORGE] AR-6.1: eight orchestration alert types added to the live alerts table; deterministic dedup keys"
+    git push origin main
+
+    DO NOT DEPLOY.
+  gates:
+  - type: compile
+  - type: test
+  - type: file_exists
+    files:
+    - src/__tests__/unit/orchestration-alert-types.test.ts
+  - type: shell
+    run: |-
+      node scripts/audit/forge-gates/ar-6-alerts-not-forked.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-6-2-orchestration-logs
+  name: Phase 6.2 orchestration_logs - execution facts, org-scoped
+  description: The forensic table, scoped by organization_id with no cost columns of its own
+  phase: "6"
+  prompt: |
+    BENAVORA AGENT REMEDIATION - PHASE 6.2 - ORCHESTRATION_LOGS
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    PREREQUISITE: prompt 6.1 complete.
+
+    THE TENANCY TRAP. The spec v1.0 scopes every table, every RLS policy and
+    every dashboard query by company_id. Verified against the live schema on
+    2026-09-17: public has 146 columns named organization_id and ZERO named
+    company_id. company_id appears nowhere in Benavora. That wording in the
+    spec is correct for DialStars and Cordial; it is wrong here. If you write
+    company_id, this platform gets two tenancy conventions, RLS is enforced
+    inconsistently, and cross-tenant reads become possible. USE
+    organization_id. A FORGE gate on this prompt fails the build if the string
+    company_id appears in any migration numbered 185 or higher.
+
+    STEP 1 - CREATE public.orchestration_logs. Execution facts only:
+      id uuid PK default gen_random_uuid()
+      organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE
+      orchestration_id uuid NOT NULL          -- groups the tasks of one run
+      task_id text                            -- the step within the run
+      agent_type text
+      agent_run_id uuid REFERENCES public.agent_runs(id) ON DELETE SET NULL
+      pil_agent_run_id uuid REFERENCES public.pil_agent_runs(id) ON DELETE SET NULL
+      status text NOT NULL
+      started_at timestamptz NOT NULL DEFAULT now()
+      finished_at timestamptz
+      duration_ms integer
+      items_expected integer
+      items_processed integer
+      error_code text
+      error_message text
+      schema_validation_passed boolean
+      reconciliation_passed boolean
+      state_delta jsonb
+      cost_log_id uuid REFERENCES public.ai_usage_log(id) ON DELETE SET NULL
+      created_at timestamptz NOT NULL DEFAULT now()
+
+    NO COST COLUMNS. Cost lives in ai_usage_log after phase 5.1;
+    cost_log_id is the join. A cost_usd or total_cost_usd column on this table
+    is a fourth cost model and the gate rejects it.
+
+    schema_validation_passed and reconciliation_passed are the two most
+    valuable columns in this design and are non-negotiable. The headline defect
+    in the 2026-09-16 agent audit was AutoApply writing status='submitted' with
+    no confirmation number and no screenshot. That is exactly an
+    evidence-validation failure that nothing recorded. These columns are what
+    make a success claim falsifiable.
+
+    STEP 2 - Index (organization_id, created_at DESC),
+    (orchestration_id), (status) WHERE status <> 'completed', (agent_run_id).
+
+    STEP 3 - RLS. ALTER TABLE ... ENABLE ROW LEVEL SECURITY and write policies
+    following the exact pattern in
+    supabase/migrations/122_lockdown_no_authenticated_read_path_rls_hardening.sql.
+    Read that file first and match it. Service role writes; members of the
+    organization read their own org's rows only. No authenticated read path
+    that bypasses organization_id.
+
+    STEP 4 - A TYPED WRITER, NOT SCATTERED INSERTS.
+    Create src/lib/orchestration/orchestration-log.ts exporting
+    logOrchestrationStep() with a discriminated result type, and wire it into
+    worker/autonomous-orchestrator.ts at the step boundary. The orchestrator
+    has 56 dynamic `await import(` call sites; instrument the shared step
+    wrapper, not 56 individual paths. Read the orchestrator first and find the
+    single place where a step's start, finish and outcome are already known.
+    If no such single place exists, say so in your report and instrument the
+    smallest set of boundaries that covers every step - then name them.
+
+    SECRETS. Never write an API key, token, password, private key or the
+    contents of .env into error_message, state_delta or any column of this
+    table. Redact by pattern before persisting. This table will be read by
+    recovery tooling and pasted into reports.
+
+    INCREMENTAL TESTING CHECKPOINT
+    Write src/__tests__/integration/orchestration-logs.test.ts asserting:
+      1. logOrchestrationStep() writes a row with the correct
+         organization_id and a resolvable orchestration_id.
+      2. A step that fails records status plus error_code, and
+         schema_validation_passed is false - not null.
+      3. An error_message containing a value shaped like an API key is
+         persisted redacted.
+      4. RLS blocks reading another organization's rows.
+    Run: pnpm vitest run --config vitest.integration.config.ts src/__tests__/integration/orchestration-logs.test.ts
+    All four green. RLS can only be tested against the real DB, so assertion 4
+    must not be mocked away.
+
+    DATABASE CONNECTION. Use the Supabase service-role client, exactly as the
+    other 16 files in src/__tests__/integration/ already do (read one first and
+    match it). Do NOT introduce a raw `DATABASE_URL` / node-postgres
+    connection: tests/setup.ts loads .env.test, which carries
+    NEXT_PUBLIC_SUPABASE_URL and the anon key and has no DATABASE_URL at all.
+    DATABASE_URL in this repo is used only by one-off migration scripts and by
+    src/__tests__/integration-live/. Do not mock the database to make an
+    assertion pass.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    SCHEMA_REGISTRY_v2.md, BLUEPRINT_v2.md and AGENTS_v2.md. Verified state
+    only.
+
+    END-OF-RUN VERIFICATION
+    Run pnpm typecheck, pnpm run build, pnpm test. Report real numbers. Then
+    state plainly how many of the orchestrator's steps now write an
+    orchestration_logs row, out of how many total.
+
+    COMMIT (scoped - never `git add -A`)
+    git add supabase/migrations src/lib/orchestration worker/autonomous-orchestrator.ts src/types/database.ts src/__tests__/integration/orchestration-logs.test.ts
+    git commit -m "[FORGE] AR-6.2: orchestration_logs - org-scoped execution facts with schema and reconciliation evidence"
+    git push origin main
+
+    DO NOT DEPLOY.
+  gates:
+  - type: compile
+  - type: test
+  - type: file_exists
+    files:
+    - src/lib/orchestration/orchestration-log.ts
+    - src/__tests__/integration/orchestration-logs.test.ts
+  - type: shell
+    run: |-
+      node scripts/audit/forge-gates/ar-6-org-scoped-tenancy.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-6-3-deterministic-rules
+  name: Phase 6.3 Rules 1-5 as deterministic triggers
+  description: Postgres triggers raise alerts; no meta-agent in the hot path and no markdown diffing
+  phase: "6"
+  prompt: |
+    BENAVORA AGENT REMEDIATION - PHASE 6.3 - DETERMINISTIC ALERT RULES
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    PREREQUISITE: prompts 6.1 and 6.2 complete. The eight alert_type values
+    exist in a COMMITTED, ALREADY-APPLIED migration - a trigger function in
+    this prompt may reference them only because they were added in a previous
+    migration file. Do not add an enum value and use it in the same migration.
+
+    WHAT THE SPEC GETS RIGHT AND YOU MUST PRESERVE. Deterministic Postgres
+    triggers instead of meta-agents in the hot path. A monitoring agent that
+    can itself fail is not monitoring. No interpretive AI summaries of logs -
+    this layer is forensic, and the failure mode the 2026-09-16 audit
+    documented was a system reporting success it had not earned. Do not add an
+    LLM call anywhere in this prompt.
+
+    IMPLEMENT RULES 1-5 as AFTER INSERT OR UPDATE triggers writing into
+    public.alerts. Each trigger sets type, severity, message, organization_id,
+    orchestration_id and a DETERMINISTIC dedup_key (no random component - see
+    prompt 6.1 STEP 4).
+
+    RULE 1 - task_failed. An orchestration_logs row reaching a terminal failed
+    status raises severity 'critical' if it is the last retry, 'warning'
+    otherwise.
+
+    RULE 2 - cost_overage. Spend against a cost_budgets row crossing its
+    budget_limit_usd raises 'critical' when hard_stop is true, 'warning'
+    otherwise. Read the budget through the accrual path built in AR-5.2.
+
+    RULE 3 - schema_mismatch. schema_validation_passed = false raises
+    'critical'. A run that produced output nothing could validate is not a
+    success.
+
+    RULE 4 - state_drift. THIS IS THE ONE PLACE THE SPEC IS WRONG ON DESIGN.
+    Spec section 8 proposes snapshotting STATE_OF_THE_BUILD.md before and
+    after each task, diffing it, and raising a critical state_drift alert on
+    mismatch. STATE_OF_THE_BUILD.md is a governance document maintained by
+    build agents. It is not runtime state. Every legitimate governance update
+    an agent makes would register as drift, and a critical alert that fires
+    during normal operation trains the operator to ignore critical alerts.
+    INSTEAD reconcile against the database, which is the actual source of
+    truth:
+      - did the agent_runs / pil_agent_runs row reach a terminal status
+      - do the expected rows exist in the target table
+      - does items_processed match what was actually written
+    Set reconciliation_passed from that check and raise state_drift only when
+    the DB contradicts the reported outcome. Do NOT read, diff, or reference
+    any markdown file from SQL.
+
+    RULE 5 - timeout. A step whose duration_ms exceeds the applicable timeout,
+    or which has no finished_at past a threshold, raises 'warning' with type
+    'timeout'. Note for context: the audit found six agent types silently
+    dying on the 60-second AGENT_TIMEOUT_MS for months with nothing recorded.
+    This rule is what surfaces that class of failure.
+
+    ALSO IMPLEMENT rate_limit, rollback and manual_review_required as raisable
+    types from the application layer via the alerts helper - they are not
+    trigger-derivable. Wire manual_review_required to the AutoApply
+    IncompleteSubmissionError path from AR-3.1 so a form the agent refuses to
+    submit produces an actionable alert rather than silence.
+
+    HARD CONSTRAINT - NO NETWORK FROM SQL. Verified 2026-09-17 against the
+    live project: pg_net (0.20.3), http (1.6) and pg_cron (1.6.4) are
+    AVAILABLE BUT NOT INSTALLED. A trigger that calls net.http_post will error
+    inside the transaction that raised the alert and lose that alert. Do not
+    install these extensions. Do not make an HTTP call from SQL. Slack
+    delivery is prompt 6.4 and lives in the worker. A FORGE gate fails this
+    build if a migration installs one of those extensions or calls
+    net.http_post.
+
+    BLAST RADIUS. A trigger that throws blocks the INSERT that fired it. An
+    alerting layer must never be able to fail the work it is observing. Wrap
+    every trigger body so an unexpected condition is swallowed and logged
+    rather than raised - and prove it in the test below.
+
+    INCREMENTAL TESTING CHECKPOINT
+    Write src/__tests__/integration/orchestration-alert-rules.test.ts
+    asserting, against the real DB, one case per rule:
+      1. Rule 1 raises exactly one task_failed alert on a terminal failure,
+         and a second identical failure does NOT create a second row
+         (uq_alerts_org_dedup proof).
+      2. Rule 2 raises cost_overage at the limit, and 'critical' when
+         hard_stop.
+      3. Rule 3 raises schema_mismatch on schema_validation_passed = false.
+      4. Rule 4 raises state_drift when items_processed disagrees with the rows
+         actually present, and raises NOTHING when a governance markdown file
+         changes - an explicit guard that Rule 4 was not built from the spec
+         as written.
+      5. Rule 5 raises timeout on an overrunning step.
+      6. A trigger that hits an unexpected condition does not fail the
+         underlying INSERT.
+    Run: pnpm vitest run --config vitest.integration.config.ts src/__tests__/integration/orchestration-alert-rules.test.ts
+    All six green. Assertion 4's negative case and assertion 6 are the ones
+    most likely to be quietly dropped - do not drop them.
+
+    DATABASE CONNECTION. Use the Supabase service-role client, exactly as the
+    other 16 files in src/__tests__/integration/ already do (read one first and
+    match it). Do NOT introduce a raw `DATABASE_URL` / node-postgres
+    connection: tests/setup.ts loads .env.test, which carries
+    NEXT_PUBLIC_SUPABASE_URL and the anon key and has no DATABASE_URL at all.
+    DATABASE_URL in this repo is used only by one-off migration scripts and by
+    src/__tests__/integration-live/. Do not mock the database to make an
+    assertion pass.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    SCHEMA_REGISTRY_v2.md and AGENTS_v2.md. Record each rule, its trigger
+    name, its severity mapping, and the documented deviation from spec section
+    8 with the reason. Verified state only.
+
+    END-OF-RUN VERIFICATION
+    Run pnpm typecheck, pnpm run build, pnpm test. Report real numbers. Then
+    state plainly whether any of these five rules can fire on normal, healthy
+    operation. If one can, it is miscalibrated - name it.
+
+    COMMIT (scoped - never `git add -A`)
+    git add supabase/migrations src/lib/alerts src/lib/orchestration src/lib/autoapply src/__tests__/integration/orchestration-alert-rules.test.ts
+    git commit -m "[FORGE] AR-6.3: deterministic alert rules 1-5 in Postgres; Rule 4 reconciles against the DB, not markdown"
+    git push origin main
+
+    DO NOT DEPLOY.
+  gates:
+  - type: compile
+  - type: test
+  - type: file_exists
+    files:
+    - src/__tests__/integration/orchestration-alert-rules.test.ts
+  - type: shell
+    run: |-
+      node scripts/audit/forge-gates/ar-6-org-scoped-tenancy.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-6-4-delivery-and-rate-card
+  name: Phase 6.4 Slack delivery in the worker, verified rate card, dashboard views
+  description: Alert delivery that cannot lose an alert, and cost rates that are actually current
+  phase: "6"
+  prompt: |
+    BENAVORA AGENT REMEDIATION - PHASE 6.4 - DELIVERY, RATE CARD, VIEWS
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    PREREQUISITE: prompts 6.1, 6.2 and 6.3 complete. alerts.notified_at exists
+    from 6.1.
+
+    PART A - SLACK DELIVERY BELONGS IN THE WORKER.
+    pg_net, pg_cron and http are NOT installed on this project (verified
+    2026-09-17). SQL cannot reach Slack. The spec's Edge Function is also
+    unnecessary: supabase/functions does not exist in this repo, and the
+    Railway worker already runs continuously.
+    Create worker/alert-notifier.ts:
+      - Poll public.alerts for rows where severity = 'critical'
+        AND notified_at IS NULL, oldest first, bounded batch size.
+      - POST a compact message to the webhook read from
+        process.env.FORGE_SLACK_WEBHOOK. That variable is already the
+        convention - FORGE/forge-slack.ps1 reads $env:FORGE_SLACK_WEBHOOK and
+        no-ops when it is empty. Do the same: when the env var is unset, log
+        once and no-op. Never hard-code a webhook URL and never commit one.
+      - Set notified_at only after a 2xx response, so a failed post retries
+        and a successful one never re-sends.
+      - Redact secrets from the message body before posting. API keys, OAuth
+        tokens, passwords, private keys and .env contents must never leave this
+        process.
+      - Wire it into the worker's existing interval loop. Read the worker's
+        entry point first and follow its existing pattern; do not add a second
+        scheduler.
+
+    PART B - THE RATE CARD MUST BE CURRENT, NOT COPIED.
+    public.model_cost_reference DOES NOT EXIST (verified 2026-09-17). Create
+    it: model text PK, input_usd_per_mtok numeric, output_usd_per_mtok numeric,
+    cache_write_usd_per_mtok numeric, cache_read_usd_per_mtok numeric,
+    effective_from date NOT NULL, source text NOT NULL.
+    The spec's rate card is dated September 2025 and lists claude-opus-4 and
+    claude-sonnet-4. DO NOT COPY IT. Neither of those model IDs appears
+    anywhere in src/ or worker/. The models this codebase actually calls are:
+      claude-sonnet-4-6            41 references
+      claude-haiku-4-5-20251001     5 references
+      claude-haiku-4-5              1 reference
+    Seed with these rates, verified against Anthropic's published pricing page
+    on 2026-09-17, with source set to that URL and effective_from 2026-09-17:
+      claude-sonnet-4-6             input 3.00   output 15.00
+      claude-haiku-4-5              input 1.00   output  5.00
+      claude-haiku-4-5-20251001     input 1.00   output  5.00
+      claude-sonnet-5               input 2.00   output 10.00
+      claude-opus-5                 input 5.00   output 25.00
+    Cache write at 1.25x base input for the 5-minute TTL and 2x for the
+    1-hour TTL; cache read at 0.1x base input. Store the 5-minute write rate
+    in cache_write_usd_per_mtok and note the 1-hour multiplier in a column
+    comment.
+    A stale rate card is worse than no cost tracking because it gets trusted.
+    Add a test that fails if any seeded row has effective_from older than 180
+    days from the build date, so this table cannot silently rot.
+
+    PART C - DASHBOARD VIEWS.
+    Build the five views from spec section 5 unchanged in intent, but scoped by
+    organization_id and reading cost from ai_usage_log rather than from
+    orchestration_logs. Each view must be RLS-safe - a view does not inherit
+    RLS from its base tables unless it is declared with
+    security_invoker = true on PG15+. This project is PG17.6. Declare it, or
+    the views become a cross-tenant read path that bypasses everything
+    prompt 6.2 established.
+
+    INCREMENTAL TESTING CHECKPOINT
+    Write src/__tests__/integration/alert-delivery.test.ts asserting:
+      1. With FORGE_SLACK_WEBHOOK unset, the notifier no-ops and sets no
+         notified_at.
+      2. A non-2xx response leaves notified_at NULL so the alert retries.
+      3. A 2xx response sets notified_at exactly once, and a second poll sends
+         nothing.
+      4. A message containing an API-key-shaped value is posted redacted.
+      5. Each dashboard view is declared security_invoker = true and returns
+         zero rows for a different organization.
+    Run: pnpm vitest run --config vitest.integration.config.ts src/__tests__/integration/alert-delivery.test.ts
+    All five green. Assertion 2 is the one that keeps this from losing alerts -
+    do not relax it.
+
+    DATABASE CONNECTION. Use the Supabase service-role client, exactly as the
+    other 16 files in src/__tests__/integration/ already do (read one first and
+    match it). Do NOT introduce a raw `DATABASE_URL` / node-postgres
+    connection: tests/setup.ts loads .env.test, which carries
+    NEXT_PUBLIC_SUPABASE_URL and the anon key and has no DATABASE_URL at all.
+    DATABASE_URL in this repo is used only by one-off migration scripts and by
+    src/__tests__/integration-live/. Do not mock the database to make an
+    assertion pass.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    SCHEMA_REGISTRY_v2.md, BLUEPRINT_v2.md and AGENTS_v2.md. Record the
+    delivery path, the rate card source and date, and the five views.
+    Verified state only.
+
+    END-OF-RUN VERIFICATION
+    Run pnpm typecheck, pnpm run build, pnpm test. Report real numbers. Then
+    answer these three plainly:
+      - Can a critical alert be raised and never delivered? Under what
+        condition?
+      - Can a secret reach Slack or the orchestration_logs table?
+      - Is every dollar figure any dashboard now shows traceable to a rate
+        with a date and a source?
+
+    COMMIT (scoped - never `git add -A`)
+    git add supabase/migrations worker/alert-notifier.ts worker src/lib/orchestration src/__tests__/integration/alert-delivery.test.ts
+    git commit -m "[FORGE] AR-6.4: worker-side Slack delivery with retry, verified model rate card, RLS-safe dashboard views"
+    git push origin main
+
+    DO NOT DEPLOY.
+  gates:
+  - type: compile
+  - type: test
+  - type: file_exists
+    files:
+    - worker/alert-notifier.ts
+    - src/__tests__/integration/alert-delivery.test.ts
+  - type: shell
+    run: |-
+      node scripts/audit/forge-gates/ar-6-no-network-in-triggers.mjs
+  max_retries: 2
+  on_fail: halt

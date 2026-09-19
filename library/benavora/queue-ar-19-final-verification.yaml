@@ -1,0 +1,281 @@
+governance:
+- STATE_OF_THE_BUILD.md
+- SESSION_STATE.md
+- AGENTS_v2.md
+- BLUEPRINT_v2.md
+project: benavora
+settings:
+  max_retries_per_prompt: 2
+  permission_mode: acceptEdits
+prompts:
+- id: ar-19-0-regression-suite
+  name: Phase 18.3 Lock in every defect class this programme found
+  description: Eighteen phases of findings, one suite that stops any of them returning
+  phase: "19"
+  prompt: |
+    BENAVORA - PHASE 19.0 - THE REGRESSION SUITE
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    This programme has found and fixed a long list of defect CLASSES. Several
+    recurred after being fixed once, because the fix was applied to an
+    instance and not to the class. Lock every one of them down.
+
+    Build src/__tests__/regression/ with one file per class. Each must fail if
+    the defect returns anywhere in the codebase, not just where it was found:
+
+      1. A success status written without its evidence (the original P0):
+         no path may write autoapply_submissions.status='submitted' without a
+         confirmation number or artifact.
+      2. A caught error discarded, or an error indistinguishable from an empty
+         result (AR-7.3, AR-11.2).
+      3. A dedup_key with a random component (AR-11.3).
+      4. Cost computed from a hardcoded rate instead of model_cost_reference
+         (AR-10.1).
+      5. A second table written with per-call cost (AR-5.1, AR-10.2).
+      6. company_id used as a tenancy column anywhere (AR-6.2).
+      7. A network call from SQL, or a new network extension (AR-6.3).
+      8. A Chromium launch bypassing the shared launcher (AR-7.1).
+      9. An agent_runs row recording success with zero items processed and no
+         skipped status (AR-14.1, AR-14.2).
+      10. A route using the admin client without a dynamic export (AR-8.1).
+      11. An agent with no cost budget making paid calls (AR-10.3).
+      12. An unbounded iteration loop in an uplifted agent (AR-17.3).
+
+    ADD ANY CLASS the audits in phases 13 and 17 turned up that is not listed.
+    The list above is what was known on 2026-09-18. Phases 13 through 17 ran
+    BEFORE this prompt and will have found more - read their evidence files and
+    add a class for every new defect they identified.
+
+    EACH TEST MUST BE A REAL DETECTOR. Prove it by introducing the defect in a
+    fixture, watching the test fail, then removing it. Report that proof per
+    test - a regression test never seen to fail is not a regression test.
+
+    WIRE IT: add `test:regression` to package.json and include it in the
+    default gate if it fits the AR-8.2 budget. If it does not fit, say so with
+    the measured number and recommend where it should run instead.
+
+    INCREMENTAL TESTING CHECKPOINT
+    Run the full regression suite against the current codebase. Every test
+    must pass NOW. Any failure is a live defect that phases 13 to 17 missed -
+    report it rather than adjusting the test.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    TESTING_v2.md with the defect-class register.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test, pnpm test:regression. Real
+    numbers. Then state how many classes are covered, how many were proven by
+    deliberate injection, and whether any failed against the live codebase.
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/__tests__/regression package.json TESTING_v2.md STATE_OF_THE_BUILD.md SESSION_STATE.md
+    git commit -m "[FORGE] AR-18.3: regression suite covering every defect class this programme found"
+    git push origin main
+  gates:
+  - type: compile
+  - type: test
+  - type: file_exists
+    files:
+    - src/__tests__/regression
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-19-1-recensus
+  name: Phase 19.1 Re-run the census and measure what six phases actually changed
+  description: The same instrument, run again, so the delta is real rather than claimed
+  phase: "19"
+  prompt: |
+    BENAVORA - PHASE 19.1 - RE-CENSUS AND DELTA
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Re-run AR-13.1's census with the identical method against the current
+    platform. Produce test-evidence/AGENT_CENSUS_FINAL.md and
+    agent-census-final.json, plus test-evidence/CENSUS_DELTA.md comparing them.
+
+    USE THE SAME METHOD. The point is a comparable number. If you improve the
+    method, apply the improvement to BOTH datasets and say so.
+
+    THE DELTA MUST SHOW, per verdict bucket, the before and after count and
+    the named agents that moved:
+      OPERATIONAL / NO-OP / DEGRADED / BROKEN / NEVER-INVOKED / ORPHANED
+
+    AND IT MUST SHOW REGRESSIONS. Any agent that was OPERATIONAL on 09-18 and
+    is not now. Six phases of change across a live platform will have broken
+    something; find it rather than waiting for it to surface later.
+
+    PLATFORM-LEVEL NUMBERS, before and after:
+      - agents on disk, agents ever executed, agents executed this week
+      - agent_runs per day, and what fraction processed real work - the
+        ag-29 no-op ratio is the headline number of this whole programme
+      - orchestration_logs rows per day, and how many are real work
+      - ai_usage_log rows per day and recorded spend, with the fraction of
+        platform Claude calls actually captured
+      - alerts raised per day by type, and how many were actionable
+
+    BE HONEST ABOUT WHAT DID NOT MOVE. If an agent is still broken after six
+    phases aimed at it, say so plainly and say why. A delta report that shows
+    only improvement is not a measurement.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    AGENTS_v2.md and BLUEPRINT_v2.md with the final counts.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test. Real numbers. Then state the
+    single sentence that best describes what changed, and the single most
+    important thing still broken.
+
+    COMMIT (scoped - never `git add -A`)
+    git add test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md AGENTS_v2.md BLUEPRINT_v2.md
+    git commit -m "[FORGE] AR-19.1: final census and measured delta across phases 13-18, regressions included"
+    git push origin main
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - test-evidence/AGENT_CENSUS_FINAL.md
+    - test-evidence/CENSUS_DELTA.md
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-19-2-six-laws
+  name: Phase 19.2 Every agent against the Six Laws, honestly
+  description: Reid's own completion standard, applied to the whole agent layer
+  phase: "19"
+  prompt: |
+    BENAVORA - PHASE 19.2 - THE SIX LAWS AUDIT
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Reid's completion standard: a feature is complete only when all six pass.
+    Apply it to every OPERATIONAL agent and produce
+    test-evidence/SIX_LAWS_AUDIT.md.
+
+      1. SCHEMA   - its tables exist in the real database with RLS applied and
+                    scoped by organization_id. NOTE: the Six Laws as written
+                    say company_id; that is correct for DialStars and Cordial
+                    and WRONG for Benavora, which has 146 organization_id
+                    columns and zero company_id. Audit against
+                    organization_id and record the per-project clarification.
+      2. API      - its routes exist, authenticate the user, and take the org
+                    from the session, never the request body.
+      3. UI       - real interface, not a placeholder; imports resolve; empty
+                    states handled.
+      4. DATA     - real API calls against real tables, org-scoped, zero mocks.
+      5. WIRING   - reachable from navigation, correct roles, actions persist.
+      6. VERIFICATION - a human has confirmed it in a browser. UNVERIFIED
+                    until that has happened.
+
+    LAW 6 IS THE ONE THAT MATTERS HERE. No agent may be marked VERIFIED by
+    this prompt. Automated checking cannot satisfy a law that requires a human
+    in a browser. Mark every agent's laws 1 through 5 with evidence, leave 6
+    as UNVERIFIED, and produce test-evidence/HUMAN_VERIFICATION_CHECKLIST.md:
+    for each agent, the exact URL, the exact steps, and what Reid should
+    expect to see. Order it so the highest-value agents come first and he can
+    stop at any point having verified the things that matter most.
+
+    DO NOT INFLATE. An agent whose UI is a placeholder fails Law 3 even if it
+    runs perfectly. The point of this audit is an honest completion picture,
+    not a green page.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    AGENTS_v2.md with per-law pass counts, and record the organization_id
+    clarification to the Six Laws so the next project inherits it correctly.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test. Real numbers. Then state how
+    many agents pass laws 1-5 fully, where the commonest failure is, and how
+    long the human verification checklist is.
+
+    COMMIT (scoped - never `git add -A`)
+    git add test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md AGENTS_v2.md
+    git commit -m "[FORGE] AR-19.2: Six Laws audit of every operational agent; Law 6 left for human verification"
+    git push origin main
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - test-evidence/SIX_LAWS_AUDIT.md
+    - test-evidence/HUMAN_VERIFICATION_CHECKLIST.md
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-19-3-handoff
+  name: Phase 19.3 A handoff that makes the next session start from truth
+  description: Every prior handoff has carried a claim that turned out not to be live
+  phase: "19"
+  prompt: |
+    BENAVORA - PHASE 19.3 - GOVERNANCE RECONCILIATION AND HANDOFF
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Every audit in this programme has found governance documents asserting
+    things that were not true of the running system: an agent count that
+    reconciled against nothing, 51 of 52 step types "instrumented" while
+    orchestration_logs held zero rows, a cost ledger described as consolidated
+    while empty, five agents "fixed" while never invoked. Each cost a later
+    session real time to rediscover.
+
+    STEP 1 - RECONCILE EVERY GOVERNANCE DOC AGAINST THE DATABASE. Go through
+    STATE_OF_THE_BUILD.md, AGENTS_v2.md, BLUEPRINT_v2.md, SCHEMA_REGISTRY_v2.md,
+    FEATURE_REGISTRY_v2.md, ARCHITECTURE.md and BEHAVIORAL_CONTRACTS.md.
+    Every factual claim about what works gets checked against live data.
+    Correct what is wrong. Delete what is obsolete. Mark what is unverifiable
+    as unverifiable rather than leaving it to be read as fact.
+
+    THE AGENT COUNT MUST RECONCILE. Modules on disk, registry entries,
+    AgentType union members, exercise-registry entries and every count printed
+    in a governance doc must be the same number, or the difference must be
+    explained in one line. This has never been true and it is why every audit
+    has started by recounting.
+
+    STEP 2 - WRITE THE HANDOFF: HANDOFF_2026-09-19.md containing
+      - platform state in numbers, every one queryable and sourced
+      - what phases 13-19 changed, and what they did not
+      - every open item with its evidence and the next concrete step
+      - every DEFER from AR-15.2 with its decision question, collected so
+        Reid can answer them in one sitting
+      - the human verification checklist from AR-19.2
+      - known traps for the next session: the device-bridge git lock
+        behaviour, the CRLF churn, Railway's SKIPPED deploys on unwatched
+        paths, the enum casting needed on agent_type, the stale DATABASE_URL
+
+    STEP 3 - STATE THE HONEST HEADLINE. One paragraph: what does this platform
+    actually do today, end to end, that a nonprofit customer would pay for?
+    Not what it contains. What it DOES. If the answer is still partial, say
+    exactly where it stops. That sentence is the most useful thing this
+    programme can hand forward.
+
+    GOVERNANCE UPDATE
+    This prompt IS the governance update. Every doc reconciled and dated.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm run build:worker, pnpm test,
+    pnpm test:regression. Real numbers. Then state how many factual
+    corrections you made to governance docs, and confirm the agent count
+    reconciles across all five sources.
+
+    COMMIT (scoped - never `git add -A`)
+    git add STATE_OF_THE_BUILD.md SESSION_STATE.md AGENTS_v2.md BLUEPRINT_v2.md SCHEMA_REGISTRY_v2.md FEATURE_REGISTRY_v2.md ARCHITECTURE.md BEHAVIORAL_CONTRACTS.md HANDOFF_2026-09-19.md test-evidence
+    git commit -m "[FORGE] AR-19.3: governance reconciled against live data; handoff written from verified state"
+    git push origin main
+  gates:
+  - type: compile
+  - type: test
+  - type: file_exists
+    files:
+    - HANDOFF_2026-09-19.md
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt

@@ -1,0 +1,57 @@
+project: benavora
+governance:
+- BLUEPRINT_v2.md
+- SCHEMA_REGISTRY_v2.md
+- AGENTS_v2.md
+- AUTONOMOUS_PLATFORM_VISION.md
+- FEATURE_REGISTRY_v2.md
+- STATE_OF_THE_BUILD.md
+- STANDING_DIRECTIVES.md
+prompts:
+- id: cnp-001
+  name: Governance sync and community need prediction schema and agent
+  prompt: |
+    First sync governance docs: $repo = 'C:\Users\manag\Documents\benavora'; $forge = 'C:\Users\manag\Documents\FORGE\projects\benavora'; Get-ChildItem $repo -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName (Join-Path $forge $_.Name) -Force }
+
+    Read AUTONOMOUS_PLATFORM_VISION.md section on Community Need Prediction.
+    Read src/lib/agents/autonomous-base.ts in full.
+
+    Create migration src/supabase/migrations/[NEXT]_community_need_prediction.sql:
+    CREATE TABLE IF NOT EXISTS community_need_signals (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, signal_source text NOT NULL CHECK (signal_source IN ('census','housing_prices','employment','eviction_data','weather','disaster','school_enrollment','migration','economic')), signal_category text NOT NULL, signal_description text NOT NULL, geographic_area text, trend_direction text CHECK (trend_direction IN ('increasing','decreasing','stable','spike')), severity text CHECK (severity IN ('critical','high','medium','low')), predicted_demand_increase integer, recommended_program_expansion text, data_date date, created_at timestamptz DEFAULT now());
+    ALTER TABLE community_need_signals ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY cnp_org ON community_need_signals USING (org_id = (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+    Apply via Supabase SQL editor. Verify table exists.
+
+    Create src/lib/agents/community-need-predictor-agent.ts extending AutonomousAgent. AG-35.
+    run(triggerSource): For each active org, load org service area (city, state, zip) and program types from KB. Use Claude with web_search tool to find: recent census data for service area, housing price trends, unemployment rate trends, eviction filing trends, recent disaster declarations, school enrollment changes. For each significant signal found: insert community_need_signals record with trend_direction, severity, predicted_demand_increase percentage, recommended_program_expansion (e.g. Housing prices increased 23% in service area -- expand affordable housing program and apply for HUD grants). logDecision for CRITICAL and HIGH signals. createNotification for CRITICAL signals immediately. This file must be at least 200 lines.
+
+    Run pnpm tsc --noEmit, fix errors.
+    Commit: git add -A; git commit -m 'feat: AG-35 community need predictor agent census housing employment eviction signals'; git push.
+
+- id: cnp-002
+  name: Community need prediction UI and program recommendations plus deploy
+  prompt: |
+    Read src/lib/agents/community-need-predictor-agent.ts in full.
+    CRITICAL: Inline style={{}} only. Hardcoded hex values. Canvas #D6E4F0.
+
+    Create src/app/api/intelligence/community-need/route.ts: GET returns community_need_signals for org ordered by severity then created_at DESC. POST triggers CommunityNeedPredictorAgent.
+
+    Create src/app/(dashboard)/intelligence/community-need/page.tsx:
+    Header: Community Need Intelligence H1, subtitle Predict service demand before it peaks.
+    Run Analysis button calls POST route.
+    Stats row: Total Signals, Critical, High, Avg Predicted Demand Increase.
+    Signal cards (white, border-radius 12px, padding 20px):
+      Left accent: critical=#DC2626, high=#F59E0B, medium=#0EA5E9, low=#6B7280.
+      Signal source badge, signal_category bold, geographic_area pill.
+      Trend direction with arrow icon (up red if increasing, down green if decreasing, spike urgent if spike).
+      predicted_demand_increase large number with % suffix colored red.
+      recommended_program_expansion box with light background, Apply for Related Grants button.
+    Empty state: No signals yet. Run Analysis to detect community need trends in your service area.
+
+    Add to intelligence nav: Community Need href /intelligence/community-need.
+    Update FEATURE_REGISTRY_v2.md feature 222 status to BUILT.
+    Run pnpm tsc --noEmit. Run pnpm build, fix errors.
+    git add -A; git commit -m 'feat: community need prediction UI program recommendations'; git push.
+    npx vercel deploy --prod.
+    Report the production URL.

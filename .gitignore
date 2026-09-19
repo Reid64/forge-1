@@ -4,3 +4,7 @@ state/
 *.docx
 ALL FORGE FILES*/
 New folder*/
+
+# Queue-file backups made by editing sessions - the git history is the real record
+library/*/*.bak-*
+library/*/*.yaml.bak*

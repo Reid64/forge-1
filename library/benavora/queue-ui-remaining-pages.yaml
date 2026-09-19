@@ -1,0 +1,51 @@
+project: benavora
+governance:
+- BLUEPRINT_v2.md
+- FEATURE_REGISTRY_v2.md
+- STATE_OF_THE_BUILD.md
+- AUTONOMOUS_PLATFORM_VISION.md
+- STANDING_DIRECTIVES.md
+prompts:
+- id: ui-rem-001
+  name: Governance sync and draft generator AutoApply donor discovery inline style rewrite
+  prompt: |
+    First: sync all governance docs: $repo = 'C:\Users\manag\Documents\benavora'; $forge = 'C:\Users\manag\Documents\FORGE\projects\benavora'; Get-ChildItem $repo -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName (Join-Path $forge $_.Name) -Force }
+
+    Read src/app/(dashboard)/draft-generator/page.tsx in full.
+    Read src/app/(dashboard)/autoapply/page.tsx in full.
+    Read src/app/(dashboard)/donor-discovery/page.tsx in full.
+    Read src/app/(dashboard)/dashboard/page.tsx for color patterns.
+    CRITICAL: Inline style={{}} only. Hardcoded hex values. Canvas #D6E4F0.
+
+    Rewrite draft-generator/page.tsx: header with stats row (Total Drafts, AI Drafts Pending #F59E0B badge, Drafts This Month, Avg Confidence). Generate New Draft button #8B5CF6. Recent drafts table with confidence badges and AI Generated badge.
+
+    Rewrite autoapply/page.tsx: status banner (green pulsing if running, gray if idle), stats row 4 cards, session list white card with status badges (completed=#10B981, failed=#DC2626, running=#F59E0B), New Session button #10B981.
+
+    Rewrite donor-discovery/page.tsx: header with stats, Discover Prospects button #EC4899, prospect count cards.
+
+    Run pnpm tsc --noEmit. Run pnpm build, fix all errors.
+    Commit: git add -A; git commit -m 'feat: draft generator autoapply donor discovery pages inline style rewrite'; git push.
+
+- id: ui-rem-002
+  name: Settings financials reports compliance contacts documents deadlines alerts inline style rewrite plus deploy
+  prompt: |
+    Read src/app/(dashboard)/settings/page.tsx in full.
+    Read src/app/(dashboard)/financials/page.tsx in full.
+    Read src/app/(dashboard)/compliance/page.tsx in full.
+    Read src/app/(dashboard)/contacts/page.tsx in full.
+    Read src/app/(dashboard)/deadlines/page.tsx in full.
+    Read src/app/(dashboard)/alerts/page.tsx in full.
+    CRITICAL: Inline style={{}} only. Hardcoded hex values. Canvas #D6E4F0.
+
+    Rewrite each page with premium fintech inline styles. Key treatments:
+    Settings: sidebar nav white card 220px, content area white card, toggle rows with blue #0EA5E9 active state.
+    Financials: summary cards row, awards timeline white card, budget breakdown.
+    Compliance: overall score badge, checklist cards grouped by section, red/green status indicators.
+    Contacts: avatar circles with initials colored by first letter, relationship type badges.
+    Deadlines: grouped by month, colored left bars by urgency, overdue red background #FEF2F2.
+    Alerts: colored dots by type, dismiss buttons, Mark All Read in header.
+
+    Run pnpm tsc --noEmit. Run pnpm build, fix all errors.
+    git add -A; git commit -m 'feat: settings financials compliance contacts deadlines alerts inline style rewrite all pages complete'; git push.
+    npx vercel deploy --prod.
+    Report the production URL.

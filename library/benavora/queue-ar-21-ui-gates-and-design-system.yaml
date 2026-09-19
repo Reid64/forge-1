@@ -1,0 +1,578 @@
+governance:
+- STATE_OF_THE_BUILD.md
+- SESSION_STATE.md
+- BLUEPRINT_v2.md
+project: benavora
+settings:
+  max_retries_per_prompt: 2
+  permission_mode: acceptEdits
+prompts:
+- id: ar-21-1-route-render-gate
+  name: Phase 21.1 A gate that asks the browser whether the page works
+  description: The UI equivalent of live-capture - no restyle may proceed without it
+  phase: "21"
+  prompt: |
+    BENAVORA - PHASE 21.1 - THE ROUTE RENDER GATE
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    THIS QUEUE RUNS BEFORE ANY UI FIX, for the same reason AR-18 runs before
+    AR-14. On 2026-09-18 ar-10-3 passed four gates with its work uncommitted,
+    because no gate asserted that work landed. The UI has the identical hole,
+    one layer up: every gate this platform owns asks the repository whether
+    code exists. `live-capture.mjs` broke that pattern by asking production
+    whether a row arrived, and it is the reason orchestration_logs went from 0
+    to 580. THERE IS NO EQUIVALENT FOR THE SCREEN.
+
+    BUILD scripts/audit/forge-gates/route-renders.mjs.
+
+    INTERFACE - 17 downstream prompts depend on it, so build to exactly this:
+      node scripts/audit/forge-gates/route-renders.mjs
+      node scripts/audit/forge-gates/route-renders.mjs --routes <comma,list>
+      node scripts/audit/forge-gates/route-renders.mjs --group dashboard
+    Run from the project root. Exit 0 on pass, non-zero on fail. Default with
+    no arguments: assert the baseline manifest described below.
+
+    IT MUST FAIL WHEN:
+      - a route returns 5xx, or throws an unhandled error during render
+      - a route logs a console error
+      - a route makes a network request returning 5xx
+      - a route regresses from RENDERS to EMPTY SHELL against the recorded
+        baseline, using AR-20.1's measurable definition and threshold
+      - a route that previously rendered for a role now redirects to /login
+        under a valid session for that role
+
+    IT MUST REPORT INDETERMINATE AND EXIT NON-ZERO, NEVER PASS, when it cannot
+    build, cannot authenticate, or cannot reach the app. An unverifiable claim
+    is not a pass - that rule is why the built-in `schema` gate was disabled on
+    2026-09-16 after it returned a hardcoded pass for every queue that used it.
+
+    THE BASELINE IS A RATCHET, NOT A WALL. Write
+    test-evidence/route-baseline.json from AR-20.1's census: each route's
+    current best verdict per role. The gate fails on REGRESSION from baseline,
+    not on absolute imperfection. A route that is EMPTY SHELL today and EMPTY
+    SHELL tomorrow does not fail the gate; it fails the AR-22 prompt that owns
+    it. When a prompt improves a route, it updates the baseline upward in the
+    same commit, and the baseline may never move downward without an explicit
+    recorded reason in the file. THIS IS THE DESIGN THAT LETS A GATE EXIST
+    BEFORE THE CODE IS CLEAN. A gate introduced as an absolute standard against
+    169 pre-existing violations halts the build on prompt one and teaches the
+    next agent to weaken it.
+
+    RUN AGAINST A PRODUCTION BUILD, not the dev server. Cap total runtime at
+    240 seconds - FORGE kills a shell gate at 300 - so default mode checks a
+    named critical subset and full-census mode is an explicit flag. State the
+    subset and why each route is in it.
+
+    SELF-TEST BOTH DIRECTIONS, non-negotiable. Three gate bugs shipped on
+    2026-09-17 because negative cases were never executed: a comment mentioning
+    net.http_post read as a call; /agent_run_id/ matched inside
+    pil_agent_run_id; /billing_path/ matched a constraint name. Add --self-test
+    proving, with fixtures: a healthy route passes; a route throwing in render
+    fails; a console error fails; a 500 from a fetch fails; an empty shell
+    regression fails; an unreachable app reports INDETERMINATE and exits
+    non-zero. Report the pass and catch counts. A measure you have not seen
+    fire is a measure you do not have.
+
+    DO NOT EDIT ANY QUEUE FILE. AR-21.3 onward already carry this gate, wired
+    in on 2026-09-18. Verify the count by grepping
+    FORGE/library/benavora/ and report it; the queue files are outside the
+    project root and outside this commit's scope.
+
+    INCREMENTAL TESTING CHECKPOINT
+    Run the gate against the live repo and report verbatim what it says now.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    BLUEPRINT_v2.md and STANDING_DIRECTIVES.md - record that a UI claim is
+    unproven until route-renders.mjs has asserted it.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm test. Real numbers. Then state the self-test pass and
+    catch counts, the baseline verdict distribution, and the gate's current
+    verdict on the real repo.
+
+    COMMIT (scoped - never `git add -A`)
+    git add scripts/audit test-evidence STANDING_DIRECTIVES.md STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md
+    git commit -m "[FORGE] AR-21.1: route-renders gate - browser-asserted, ratcheted against a recorded baseline, self-tested in both directions"
+    git push origin main
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - scripts/audit/forge-gates/route-renders.mjs
+    - test-evidence/route-baseline.json
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-21-2-design-direction
+  name: Phase 21.2 Three real directions on real screens, one chosen by stated reasoning
+  description: The difference between a systematic design and AI slop is that the decision is made once, explicitly, and everything follows it
+  phase: "21"
+  prompt: |
+    BENAVORA - PHASE 21.2 - DESIGN DIRECTION
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Read test-evidence/DESIGN_SYSTEM_AUDIT.md. The distinct-colour count in
+    that file is the whole problem: this product has no design, it has an
+    accumulation of independent decisions. Restyling 176 routes without first
+    fixing the direction produces a different accumulation.
+
+    THIS PROMPT PRODUCES A DECISION AND MAKES IT CHEAP TO REVERSE. It restyles
+    nothing.
+
+    BUILD test-evidence/design-directions/index.html - a single self-contained
+    page, no external assets, openable by double-click - showing THREE
+    complete design directions rendered on FOUR REAL BENAVORA SCREENS, not on
+    abstract swatches:
+      1. the funding opportunities list - dense, scannable, many rows
+      2. a funder detail view - hierarchy, long text, metadata
+      3. the dashboard overview - stat tiles and charts
+      4. a form - the onboarding org profile step
+
+    Use REAL content pulled from the database for the seeded org, not lorem
+    and not invented nonprofits. A direction that looks good on fake data and
+    falls apart on a real 140-character grant title has not been tested.
+
+    EACH DIRECTION IS A COMPLETE SYSTEM, specified as tokens:
+      - a single neutral ramp, stated as a count of steps
+      - one primary, one accent, and semantic success/warning/danger/info
+      - a type scale with a stated ratio, and a maximum of THREE weights
+      - a spacing scale on a 4px grid
+      - a radius scale, a border treatment, and ONE elevation approach -
+        shadow or border, not both
+      - density: the table row height and form field height, stated
+      - light and dark, both, from the same tokens
+
+    DIRECTIONS MUST BE GENUINELY DIFFERENT in density, weight and warmth -
+    three shades of the same thing is not a choice. Name each in plain words
+    and, for each, write two sentences on who it suits and what it costs.
+
+    DO NOT COPY ANY EXISTING PRODUCT'S VISUAL IDENTITY, BRAND, OR DESIGN
+    SYSTEM. No cloning a named SaaS company's interface, no reproducing another
+    company's logo, wordmark or illustration style. These directions are
+    original systems built from the tokens above. Where you need reference,
+    reference general conventions - a dense data table, a card grid - never a
+    specific company's execution.
+
+    ACCESSIBILITY IS A CONSTRAINT, NOT A REVIEW STEP. Every text-on-background
+    pair in every direction meets WCAG AA - 4.5:1 for body, 3:1 for large text
+    and UI boundaries - in BOTH light and dark. Compute and print the actual
+    contrast ratio beside every pair on the page. A direction with a failing
+    pair is not presented as an option; fix it or drop it.
+
+    THEN CHOOSE ONE, and write the choice and the reasoning into
+    test-evidence/DESIGN_DIRECTION.md. Do not wait for a human - this run is
+    unattended. Justify the choice against Benavora's actual use: nonprofit
+    staff, long sessions, dense tabular grant data, frequent long-form reading,
+    and a customer who is not a designer and will judge the product in the
+    first ten seconds.
+
+    MAKE THE DECISION CHEAP TO REVERSE. Because AR-21.3 expresses the choice
+    purely as tokens and AR-22 consumes only tokens, changing direction later
+    is a token-file swap, not a rewrite. State that explicitly in
+    DESIGN_DIRECTION.md, and state what a direction change would and would not
+    require. Reid can override the choice at any point; the programme must not
+    depend on him answering during the run.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    BLUEPRINT_v2.md with the chosen direction and its token summary.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm test. Real numbers. Then name the three directions,
+    the one chosen, the reasoning in three sentences, the worst contrast ratio
+    in the chosen direction, and exactly what reversing the choice would cost.
+
+    COMMIT (scoped - never `git add -A`)
+    git add test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md
+    git commit -m "[FORGE] AR-21.2: three original design directions on real screens with measured AA contrast; one chosen, reversible as a token swap"
+    git push origin main
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - test-evidence/design-directions/index.html
+    - test-evidence/DESIGN_DIRECTION.md
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-21-3-design-tokens
+  name: Phase 21.3 Make the direction the only way to express a colour
+  description: 198 files hardcode hex today - the token layer plus a ratcheted gate is what stops that growing
+  phase: "21"
+  prompt: |
+    BENAVORA - PHASE 21.3 - THE TOKEN LAYER AND ITS GATE
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Read test-evidence/DESIGN_DIRECTION.md and
+    test-evidence/DESIGN_SYSTEM_AUDIT.md.
+
+    IMPLEMENT THE CHOSEN DIRECTION AS TOKENS, in tailwind.config.ts and CSS
+    custom properties in src/app/globals.css:
+      - semantic names only: surface, surface-raised, border, border-strong,
+        text, text-muted, text-inverse, primary, primary-hover, accent,
+        success, warning, danger, info. NOT blue-500. A component asking for
+        blue-500 cannot be re-themed; a component asking for primary can.
+      - light and dark from the same semantic names, so no component knows
+        which theme it is in
+      - the type scale, spacing scale and radius scale from the direction
+      - every token documented in one place with its intended use
+
+    DO NOT RESTYLE COMPONENTS IN THIS PROMPT. Tokens and the gate only. AR-22
+    migrates components, in batches, per area.
+
+    BUILD scripts/audit/forge-gates/design-tokens.mjs.
+
+    INTERFACE - downstream prompts depend on it exactly:
+      node scripts/audit/forge-gates/design-tokens.mjs
+    Exit 0 on pass, non-zero on fail. Run from the project root.
+
+    IT FAILS WHEN the count of token violations in src/app or src/components
+    EXCEEDS the recorded baseline. Violations: a hardcoded #rrggbb, an
+    arbitrary Tailwind colour bg-[#... or text-[#... or border-[#..., a raw
+    rgb()/hsl() literal in a className or style, and an off-scale font size or
+    spacing value.
+
+    RATCHET, NOT WALL - the same design as AR-21.1's baseline, and for the same
+    reason. Seed test-evidence/design-token-baseline.json from AR-20.3's
+    violation-ledger JSON, per file. The gate fails on any INCREASE, in total
+    or in any individual file. Every AR-22 prompt lowers the baseline in its
+    own commit. The baseline may never rise without a recorded reason in the
+    file. A gate demanding zero against 198 pre-existing files halts the build
+    on prompt one and teaches the next agent to weaken the gate - which is how
+    a gate becomes theatre.
+
+    COUNT CORRECTLY OR THE GATE IS WORSE THAN NOTHING. The gate bugs of
+    2026-09-17 were all substring matching on a text blob. Here:
+      - ignore hex values inside comments and inside import paths
+      - ignore hex in test files, fixtures, and test-evidence
+      - a hex inside an SVG path's fill that is genuinely part of an
+        illustration asset is a different case from a hex styling a UI surface:
+        decide the rule, state it in the file header, and apply it consistently
+      - do not count the same violation twice on one line
+    Reuse the comment-stripping discipline of scripts/audit/forge-gates/
+    _sql.mjs - read that file first and follow its approach for a JS/TSX
+    equivalent rather than inventing a second one.
+
+    SELF-TEST BOTH DIRECTIONS. Fixtures proving: a clean file passes; an added
+    hex fails; an added arbitrary Tailwind colour fails; a hex in a comment is
+    ignored; a removed violation lowers the count and passes; a file-level
+    increase fails even when the total is unchanged. Report pass and catch
+    counts.
+
+    INCREMENTAL TESTING CHECKPOINT
+    Run the gate on the real repo and print the baseline total and per-file top
+    ten verbatim.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    BLUEPRINT_v2.md and BEHAVIORAL_CONTRACTS.md with the token contract: a
+    component expresses colour, type and spacing only through tokens.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test. Real numbers. Then state the
+    token count, the baseline violation total, the self-test results, and
+    confirm the app still builds and renders - run route-renders.mjs and paste
+    its verdict.
+
+    COMMIT (scoped - never `git add -A`)
+    git add tailwind.config.ts src/app/globals.css scripts/audit test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md BEHAVIORAL_CONTRACTS.md
+    git commit -m "[FORGE] AR-21.3: semantic token layer for light and dark, plus a ratcheted, self-tested token gate seeded from the real violation ledger"
+    git push origin main
+  gates:
+  - type: compile
+  - type: build
+  - type: file_exists
+    files:
+    - scripts/audit/forge-gates/design-tokens.mjs
+    - test-evidence/design-token-baseline.json
+  - type: shell
+    run: node scripts/audit/forge-gates/design-tokens.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/route-renders.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-21-4-primitives
+  name: Phase 21.4 Finish the primitive set and stop the hand-rolling
+  description: 17 primitives exist and 169 files hand-roll a button anyway
+  phase: "21"
+  prompt: |
+    BENAVORA - PHASE 21.4 - COMPLETE THE PRIMITIVES
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    17 primitives exist in src/components/ui. 169 of 401 files use a raw
+    <button> anyway, 86 a raw <input>, 38 a raw <select>. The reason is almost
+    never preference - it is that the primitive lacked the variant the author
+    needed, so they hand-rolled one and moved on. Read
+    test-evidence/DESIGN_SYSTEM_AUDIT.md section 4 for which primitives are
+    missing and which recurring patterns have none.
+
+    REBUILD THE EXISTING 17 ON TOKENS. Every one expresses colour, type,
+    spacing and radius only through AR-21.3's tokens. No hex, no arbitrary
+    Tailwind colour.
+
+    ADD THE VARIANTS THAT DROVE PEOPLE AWAY. Derive them from what the 169
+    hand-rolled buttons and 86 hand-rolled inputs actually do - read a real
+    sample, do not guess. Expect at minimum: button variants primary /
+    secondary / ghost / danger, sizes sm / md / lg, loading and disabled
+    states, icon-only with a required accessible label; input with label, hint,
+    error, prefix and suffix.
+
+    ADD THE MISSING PRIMITIVES the audit named for recurring patterns - a page
+    header, a stat tile, a data-table toolbar, a form row, a tab bar, a drawer,
+    a toast, a confirmation dialog. Build what the audit evidenced, not a
+    speculative kit.
+
+    EVERY PRIMITIVE IS ACCESSIBLE BY CONSTRUCTION, not by later review:
+    keyboard reachable and operable, a visible focus ring from tokens, correct
+    roles and labels, disabled state conveyed to assistive technology, and AA
+    contrast in light and dark. An icon-only control without an accessible
+    name must be a TYPE ERROR, not a lint warning - make the label prop
+    required.
+
+    DO NOT MIGRATE CALLERS IN THIS PROMPT beyond what is needed to keep the
+    build green. AR-22 migrates, per area, so a regression is attributable to
+    one batch.
+
+    BUILD scripts/audit/forge-gates/ui-primitives.mjs, ratcheted exactly like
+    AR-21.3's gate, seeded from the measured counts of raw <button>, <input>,
+    <select> and <textarea> in src/app and src/components. Fails on any
+    increase in total or in any file. Ignore src/components/ui itself, where
+    the raw elements legitimately live, and ignore test files - state both
+    exclusions in the header. Self-test both directions and report the counts.
+
+    BUILD A LIVE PRIMITIVE GALLERY at src/app/(dashboard)/admin/ui/page.tsx -
+    every primitive, every variant, every state, light and dark, so a human can
+    see the system rather than read about it. Admin-gated. This is the artifact
+    Reid uses to judge the direction in practice.
+
+    INCREMENTAL TESTING CHECKPOINT
+    src/__tests__/integration/ui-primitives.test.ts asserting: every primitive
+    renders in both themes; every interactive primitive is keyboard operable;
+    an icon-only control without a label fails typecheck; no primitive emits a
+    hardcoded colour.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    BLUEPRINT_v2.md and BEHAVIORAL_CONTRACTS.md with the primitive contract.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test. Real numbers. Then state the
+    primitive count before and after, the raw-element baseline, the gate
+    self-test results, and paste route-renders.mjs's verdict.
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/components/ui src/app/\(dashboard\)/admin/ui src/__tests__ scripts/audit test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md BEHAVIORAL_CONTRACTS.md
+    git commit -m "[FORGE] AR-21.4: primitives rebuilt on tokens with the variants that drove hand-rolling, accessible by construction, plus a ratcheted raw-element gate and a live gallery"
+    git push origin main
+  gates:
+  - type: compile
+  - type: build
+  - type: test
+  - type: file_exists
+    files:
+    - scripts/audit/forge-gates/ui-primitives.mjs
+    - src/__tests__/integration/ui-primitives.test.ts
+  - type: shell
+    run: node scripts/audit/forge-gates/design-tokens.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/route-renders.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-21-5-route-boundaries
+  name: Phase 21.5 Zero error boundaries across 176 routes
+  description: One thrown error in a server component currently takes out a whole segment with a generic page
+  phase: "21"
+  prompt: |
+    BENAVORA - PHASE 21.5 - LOADING, ERROR AND EMPTY STATES
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    MEASURED ON DISK, 2026-09-18 - verify before using:
+      0  loading.tsx anywhere in src/app
+      0  error.tsx anywhere in src/app
+      0  not-found.tsx anywhere in src/app
+    176 routes, and not one App Router boundary among them.
+
+    WHAT THAT MEANS CONCRETELY: any error thrown in a server component
+    surfaces as Next.js's default error page for the whole route segment.
+    Every data fetch shows nothing until it resolves. Every missing record
+    shows a generic 404 with no path back into the product. AR-20.1's census
+    recorded which routes this actually bites on - read
+    test-evidence/ROUTE_CENSUS.md and start with those.
+
+    ADD, per route group and per route where the group is too coarse:
+      - loading.tsx using the LoadingCard and skeleton primitives, shaped like
+        the content it replaces. A spinner where a table will appear is worse
+        than a skeleton; the layout must not jump when data lands.
+      - error.tsx that says what failed in words a nonprofit director
+        understands, offers a retry, offers a route back, and NEVER exposes a
+        stack trace, a SQL fragment, an internal table or column name, an
+        environment variable, or a key. Log the detail server-side; show the
+        person a sentence. Secrets and internals must never reach the browser -
+        the same rule that keeps SUPABASE_SERVICE_ROLE_KEY out of CI.
+      - not-found.tsx that names what was not found and links onward.
+      - EMPTY STATES on every list, table and collection: what this is, why it
+        is empty, and the one action that fills it. An empty state is the first
+        thing a new customer sees on most of this product, and right now most
+        of them show a blank region. Use the existing EmptyState primitives.
+
+    DISTINGUISH THE THREE CASES A BLANK REGION CURRENTLY CONFLATES: still
+    loading, loaded and genuinely empty, and failed. AR-11.2 fixed 55 sites
+    where the backend conflated error with absence; this is the same defect on
+    the screen, and a customer who cannot tell "you have no funders yet" from
+    "we could not load your funders" will not trust either answer.
+
+    BUILD scripts/audit/forge-gates/route-boundaries.mjs, ratcheted from a
+    measured baseline of zero, asserting every route group has loading, error
+    and not-found, and that no error boundary renders a stack trace or an
+    internal identifier. Self-test both directions - including a fixture whose
+    error boundary leaks a stack trace, which must fail. Report the counts.
+
+    INCREMENTAL TESTING CHECKPOINT
+    src/__tests__/integration/route-boundaries.test.ts asserting: a thrown
+    server-component error renders the designed boundary and not a stack trace;
+    a missing record renders not-found with a working link onward; a slow fetch
+    renders a skeleton matching the final layout; and an empty collection
+    renders its empty state rather than a blank region.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    BLUEPRINT_v2.md and BEHAVIORAL_CONTRACTS.md with the state contract -
+    loading, empty and error are required, and they are three distinct states.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test. Real numbers. Then state how
+    many route groups now have all three boundaries out of how many exist, how
+    many empty states were added, and paste route-renders.mjs's verdict.
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/app src/components src/__tests__ scripts/audit test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md BEHAVIORAL_CONTRACTS.md
+    git commit -m "[FORGE] AR-21.5: loading, error and not-found boundaries across every route group, empty states on every collection, no internals leaked to the browser"
+    git push origin main
+  gates:
+  - type: compile
+  - type: build
+  - type: test
+  - type: file_exists
+    files:
+    - scripts/audit/forge-gates/route-boundaries.mjs
+    - src/__tests__/integration/route-boundaries.test.ts
+  - type: shell
+    run: node scripts/audit/forge-gates/route-boundaries.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/route-renders.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-21-6-a11y-gate
+  name: Phase 21.6 Accessibility measured by a machine in a real browser
+  description: The audit signals are better than expected here - lock that in before 176 routes get restyled
+  phase: "21"
+  prompt: |
+    BENAVORA - PHASE 21.6 - THE ACCESSIBILITY GATE
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    MEASURED ON DISK, 2026-09-18 - verify before using:
+      0  <img> tags without an alt attribute
+      2  files attaching onClick to a div or span
+    136  files using aria-label
+    That is a better starting position than this platform's other layers, and
+    the point of this prompt is to lock it in BEFORE AR-22 restyles 176 routes.
+    A grep cannot see contrast, focus order, or a modal that traps nothing.
+    Only a browser can.
+
+    BUILD scripts/audit/forge-gates/a11y.mjs using axe-core injected via
+    Playwright against a production build, reusing AR-21.1's auth and route
+    list.
+
+    INTERFACE - build to exactly this:
+      node scripts/audit/forge-gates/a11y.mjs
+      node scripts/audit/forge-gates/a11y.mjs --routes <comma,list>
+    Exit 0 on pass, non-zero on fail, from the project root. INDETERMINATE
+    exits non-zero - never pass when you could not measure.
+
+    IT FAILS on any NEW axe violation of impact serious or critical against a
+    recorded per-route baseline in test-evidence/a11y-baseline.json. Same
+    ratchet design and same reasoning as AR-21.3. Moderate and minor are
+    recorded and reported, not gated - gating everything at once produces a
+    wall, and a wall gets weakened.
+
+    ALSO ASSERT WHAT AXE CANNOT, because these are the failures that actually
+    lock a keyboard user out:
+      - every interactive control is reachable by Tab and operable by Enter or
+        Space
+      - focus order follows visual order on each route
+      - a visible focus indicator exists on every focusable control, drawn
+        from tokens
+      - opening a modal or drawer moves focus into it, traps it there, and
+        restores focus to the trigger on close
+      - Escape closes any dismissible overlay
+      - no keyboard trap anywhere
+    Test these with real key events in the browser, not by inspecting markup.
+
+    RUN IT ON THE PRIMITIVE GALLERY TOO - src/app/(dashboard)/admin/ui - so a
+    primitive's accessibility is proven once at the source rather than
+    rediscovered on every page that uses it.
+
+    CAP RUNTIME at 240 seconds; FORGE kills a shell gate at 300. Default mode
+    covers the named critical subset, full coverage behind a flag. State the
+    subset.
+
+    SELF-TEST BOTH DIRECTIONS: a clean fixture passes; an unlabelled icon
+    button fails; an insufficient-contrast pair fails; a modal that does not
+    trap focus fails; an element reachable only by mouse fails; an
+    unreachable app reports INDETERMINATE and exits non-zero. Report pass and
+    catch counts.
+
+    INCREMENTAL TESTING CHECKPOINT
+    Run the gate against the real repo and print the baseline per-route
+    violation counts and the total, verbatim.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    BLUEPRINT_v2.md and BEHAVIORAL_CONTRACTS.md with the accessibility
+    contract.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test. Real numbers. Then state the
+    serious and critical violation count at baseline, which routes carry them,
+    the self-test results, and paste route-renders.mjs's verdict.
+
+    COMMIT (scoped - never `git add -A`)
+    git add scripts/audit test-evidence package.json pnpm-lock.yaml STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md BEHAVIORAL_CONTRACTS.md
+    git commit -m "[FORGE] AR-21.6: axe-core accessibility gate in a real browser, plus keyboard, focus-order and focus-trap assertions axe cannot make"
+    git push origin main
+  gates:
+  - type: compile
+  - type: build
+  - type: test
+  - type: file_exists
+    files:
+    - scripts/audit/forge-gates/a11y.mjs
+    - test-evidence/a11y-baseline.json
+  - type: shell
+    run: node scripts/audit/forge-gates/a11y.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/route-renders.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt

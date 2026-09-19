@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# FORGE pre-commit secret scan.
+#
+# Added 2026-09-19 after GitHub push protection rejected commit 38296c0: a
+# Supabase personal access token (sbp_...) sat in
+# library/benavora/queue-autonomous-agents.yaml line 24 and a hand-written scan
+# missed it, because that scan did not know the sbp_ prefix existed.
+#
+# The lesson is not "scan harder" - it is that a scan written from memory only
+# catches the prefixes you happen to remember. This list is version-controlled
+# so it can be extended once and applied forever.
+#
+# Bypass (only when you are certain a match is a placeholder):  git commit --no-verify
+set -u
+
+PATTERNS=(
+  'sbp_[A-Za-z0-9_]{20,}'                  # Supabase personal access token
+  'sbs_[A-Za-z0-9_]{20,}'                  # Supabase service key
+  'eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}'  # JWT (Supabase anon/service-role)
+  'sk-[A-Za-z0-9_-]{20,}'                  # OpenAI / Anthropic style
+  'sk-ant-[A-Za-z0-9_-]{20,}'              # Anthropic
+  'sk_(live|test)_[A-Za-z0-9]{20,}'        # Stripe secret
+  'rk_(live|test)_[A-Za-z0-9]{20,}'        # Stripe restricted
+  'whsec_[A-Za-z0-9]{20,}'                 # Stripe webhook secret
+  'gh[pousr]_[A-Za-z0-9]{30,}'             # GitHub token
+  'github_pat_[A-Za-z0-9_]{20,}'           # GitHub fine-grained PAT
+  'AKIA[0-9A-Z]{16}'                       # AWS access key id
+  'ASIA[0-9A-Z]{16}'                       # AWS temporary key id
+  'xox[baprs]-[A-Za-z0-9-]{10,}'           # Slack token
+  'hooks\.slack\.com/services/[A-Za-z0-9/]{20,}'  # Slack webhook
+  'AIza[0-9A-Za-z_-]{30,}'                 # Google API key
+  're_[A-Za-z0-9]{20,}'                    # Resend
+  'SG\.[A-Za-z0-9_-]{20,}'                 # SendGrid
+  'postgres(ql)?://[^[:space:]]*:[^[:space:]@]*@'  # DB URI with inline password
+  'BEGIN (RSA|EC|DSA|OPENSSH|PGP) PRIVATE KEY'     # private key block
+)
+
+FOUND=0
+FILES=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$FILES" ] && exit 0
+
+for f in $FILES; do
+  [ -f "$f" ] || continue
+  case "$f" in *.png|*.jpg|*.jpeg|*.gif|*.pdf|*.zip|*.docx|*.xlsx) continue;; esac
+  for p in "${PATTERNS[@]}"; do
+    if grep -qE "$p" "$f" 2>/dev/null; then
+      if [ "$FOUND" -eq 0 ]; then
+        echo ""
+        echo "BLOCKED: a credential pattern was found in files staged for commit."
+        echo ""
+      fi
+      echo "  $f"
+      echo "      matched: $p"
+      echo "      line(s): $(grep -nE "$p" "$f" | cut -d: -f1 | tr '\n' ' ')"
+      FOUND=1
+    fi
+  done
+done
+
+if [ "$FOUND" -eq 1 ]; then
+  echo ""
+  echo "Remove the credential from the file and read it from the environment"
+  echo "instead. If this really is a placeholder, commit with --no-verify."
+  echo ""
+  exit 1
+fi
+exit 0

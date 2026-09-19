@@ -1,0 +1,79 @@
+project: benavora
+governance:
+- BLUEPRINT_v2.md
+- SCHEMA_REGISTRY_v2.md
+- AGENTS_v2.md
+- AUTONOMOUS_PLATFORM_VISION.md
+- FEATURE_REGISTRY_v2.md
+- STATE_OF_THE_BUILD.md
+- STANDING_DIRECTIVES.md
+prompts:
+- id: crg-001
+  name: Governance sync and corporate relationship graph schema
+  prompt: |
+    First sync governance docs: $repo = 'C:\Users\manag\Documents\benavora'; $forge = 'C:\Users\manag\Documents\FORGE\projects\benavora'; Get-ChildItem $repo -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName (Join-Path $forge $_.Name) -Force }
+
+    Read SCHEMA_REGISTRY_v2.md for pig_nodes and pig_edges tables in full.
+    Read AUTONOMOUS_PLATFORM_VISION.md section on Corporate Relationship Graph.
+
+    The Corporate Relationship Graph extends the existing pig_nodes and pig_edges infrastructure. Create migration src/supabase/migrations/[NEXT]_corporate_relationship_graph.sql:
+
+    CREATE TABLE IF NOT EXISTS corporate_relationships (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, source_type text NOT NULL CHECK (source_type IN ('board_member','alumni','vendor','church','university','employer','family_foundation','shared_board')), source_entity_name text NOT NULL, target_entity_name text NOT NULL, relationship_description text, warm_introduction_path text, introduction_strength text CHECK (introduction_strength IN ('direct','one_hop','two_hop')), discovered_at timestamptz DEFAULT now(), verified boolean DEFAULT false);
+    ALTER TABLE corporate_relationships ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY corp_rel_org ON corporate_relationships USING (org_id = (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+    CREATE INDEX idx_corp_rel_org ON corporate_relationships(org_id, introduction_strength, discovered_at DESC);
+
+    Apply via Supabase SQL editor. Verify table exists.
+    Commit: git add -A; git commit -m 'feat: corporate_relationships table for relationship graph'; git push.
+
+- id: crg-002
+  name: AG-32 Relationship Graph Builder agent
+  prompt: |
+    Read src/lib/agents/autonomous-base.ts in full.
+    Read src/lib/agents/relationship-builder-agent.ts in full for patterns.
+    Read AUTONOMOUS_PLATFORM_VISION.md section on Corporate Relationship Graph.
+
+    Create src/lib/agents/relationship-graph-builder-agent.ts extending AutonomousAgent. AG-32.
+
+    run(triggerSource): Discovers hidden relationship connections between the org and its funders/prospects.
+    1. startRun.
+    2. Load org board members and leadership from knowledge_base_profiles leadership_board section.
+    3. Load org funders list with funder names and websites.
+    4. Load org corporate_prospects list with company names.
+    5. For each board member name: call Claude (claude-sonnet-4-6, max_tokens 800) with web_search tool: search for this person's professional connections, past employers, university affiliations, other board memberships, family foundation connections. Parse results to find connections to known funders or prospects.
+    6. For each discovered connection: insert corporate_relationships record with source_type, source_entity_name, target_entity_name, relationship_description, introduction_strength (direct if one degree, one_hop if two degrees).
+    7. Generate warm_introduction_path: human-readable path like Board member John Smith previously worked at ABC Corp which donates to organizations like yours.
+    8. logDecision for each connection found with confidence score based on verification level.
+    9. completeRun summary with connectionsFound, directConnections, oneHopConnections.
+
+    This file must be at least 200 lines.
+    Run pnpm tsc --noEmit, fix errors.
+    Commit: git add -A; git commit -m 'feat: AG-32 relationship graph builder agent -- board connection discovery'; git push.
+
+- id: crg-003
+  name: Relationship graph UI and warm introduction pathways plus deploy
+  prompt: |
+    Read src/lib/agents/relationship-graph-builder-agent.ts in full.
+    Read src/app/(dashboard)/dashboard/page.tsx for inline style patterns.
+    CRITICAL: Inline style={{}} only. Hardcoded hex values. Canvas #D6E4F0.
+
+    Create src/app/api/intelligence/relationship-graph/route.ts: GET returns corporate_relationships for org ordered by introduction_strength ASC (direct first), discovered_at DESC. POST triggers RelationshipGraphBuilderAgent.
+
+    Create src/app/(dashboard)/intelligence/relationship-graph/page.tsx:
+    Header: Relationship Intelligence Graph H1, subtitle Discover hidden connections between your board and funders.
+    Stats row: Total Connections, Direct Introductions, One-Hop, Two-Hop.
+    Discover Connections button calls POST route.
+    Connection cards (white, border-radius 12px, padding 20px, marginBottom 12px):
+      Left accent: direct=#10B981, one_hop=#0EA5E9, two_hop=#F59E0B.
+      Source type badge (board_member, alumni, etc).
+      Connection path displayed as: [Board Member] -> [Connection] -> [Funder/Prospect].
+      warm_introduction_path text italic gray.
+      Introduction Strength badge.
+      Request Introduction button #10B981 (creates outreach task).
+
+    Add to intelligence nav: Relationship Graph href /intelligence/relationship-graph.
+    Update FEATURE_REGISTRY_v2.md feature 220 status to BUILT.
+    Run pnpm tsc --noEmit. Run pnpm build, fix errors.
+    git add -A; git commit -m 'feat: relationship graph UI warm introduction pathways'; git push.
+    npx vercel deploy --prod.
+    Report the production URL.

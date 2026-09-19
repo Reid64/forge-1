@@ -1,0 +1,25 @@
+project: benavora
+governance:
+- SCHEMA_REGISTRY_v2.md
+- AGENTS_v2.md
+- STATE_OF_THE_BUILD.md
+- STANDING_DIRECTIVES.md
+prompts:
+- id: elig-001
+  name: Governance sync and eligibility scoring pipeline
+  prompt: |
+    First: sync all governance docs: $repo = 'C:\Users\manag\Documents\benavora'; $forge = 'C:\Users\manag\Documents\FORGE\projects\benavora'; Get-ChildItem $repo -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName (Join-Path $forge $_.Name) -Force }
+
+    Read src/lib/agents/eligibility-scoring-agent.ts in full.
+    Search package.json for score:eligibility script. Read it if found.
+
+    If no score:eligibility script exists create scripts/run-eligibility-scoring.ts: loads all organizations WHERE onboarding_completed=true, for each org loads opportunities WHERE eligibility_score IS NULL AND status=open, calls EligibilityScoringAgent.run(manual) for each, logs progress. Add package.json script score:eligibility.
+
+    Add Score All button to opportunities page header calling POST /api/autonomous/trigger with agentId ag-02-eligibility showing loading state.
+
+    Verify opportunities page joins opportunity_probability_scores to show overall_score alongside eligibility_score as colored badges.
+
+    Run pnpm tsc --noEmit. Run pnpm build, fix errors.
+    Commit: git add -A; git commit -m 'feat: eligibility scoring pipeline script and Score All button on opportunities page'; git push.
+    npx vercel deploy --prod.
+    Report the production URL.

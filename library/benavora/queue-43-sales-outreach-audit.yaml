@@ -1,0 +1,101 @@
+project: benavora
+github_repo: Reid64/benavora
+supabase_project_ref: vbjplpquqxxfbpazyalt
+vercel_project_name: benavora
+domain: benavora.com
+
+governance:
+  - FEATURE_REGISTRY_v2.md
+  - STANDING_DIRECTIVES.md
+  - BEHAVIORAL_CONTRACTS.md
+
+settings:
+  max_retries_per_prompt: 3
+  build_model: claude-sonnet-4-6-20250514
+  review_model: claude-sonnet-4-6-20250514
+  report_model: claude-haiku-4-5-20251001
+  permission_mode: acceptEdits
+  allowed_tools: "*"
+  review_frequency: 5
+  governance_check_frequency: 10
+
+prompts:
+
+  - id: outreach-audit-001
+    phase: build
+    description: "Full inventory of the three overlapping outreach/email systems - no code changes"
+    prompt: |
+      This is an audit-only prompt. Make ZERO code changes.
+
+      Grep the full repo for every file belonging to three systems:
+      1. Sales Outreach: src/app/(dashboard)/admin/sales-outreach, src/app/api/admin/sales-analytics, and anything else matching "sales-outreach" or "sales-analytics".
+      2. Outreach: src/app/(dashboard)/outreach, src/app/api/outreach, src/app/api/agents/outreach, src/lib referenced by those routes.
+      3. Email: src/app/(dashboard)/email, src/app/api/email, and any lib code referenced by those routes.
+
+      For each system, document in a new file OUTREACH_CONSOLIDATION_AUDIT.md: every real file path, every real DB table it queries (confirm via grep of .from( calls, then confirm each table actually exists via a real psql \d query against DATABASE_URL - do not assume from the code alone), every real UI route reachable from nav, and its actual purpose based on reading the code, not the file/folder name.
+
+      Then, for each pair of systems, state explicitly whether they share a DB table, share a UI concept, or are genuinely independent - cite the specific evidence for each claim (a shared table name, a shared component import, etc.), not an impression.
+    expected_outputs:
+      - OUTREACH_CONSOLIDATION_AUDIT.md
+    gates:
+      - type: file_exists
+        files: [OUTREACH_CONSOLIDATION_AUDIT.md]
+    max_retries: 3
+    on_fail: halt
+
+  - id: outreach-audit-002
+    phase: build
+    description: "Classify consolidation candidates into safe-to-act vs needs-Reid-decision"
+    prompt: |
+      Read OUTREACH_CONSOLIDATION_AUDIT.md in full.
+
+      Append a new section to it: "Consolidation Candidates."
+
+      For each real overlap found, classify it as one of two categories, using this exact bar:
+
+      SAFE (zero behavior change) - only if you can prove via repo-wide grep that a file, function, or route has ZERO callers anywhere in src/ outside its own definition (true dead code), or that two pieces of code are byte-for-byte functionally identical duplicates with no call-site depending on their difference. List the grep command and its literal output as proof for every SAFE candidate.
+
+      NEEDS REID'S DECISION - anything else: two systems that both write real user-facing data with any difference in schema, behavior, or UI; anything where picking a "winner" changes what a real org's outreach data looks like; anything you are not fully certain is dead code.
+
+      When in doubt, classify as NEEDS REID'S DECISION. A miscategorized SAFE item that turns out to break a real feature is a much worse outcome than an over-cautious NEEDS REID'S DECISION item that turns out to have been mergeable.
+    expected_outputs:
+      - OUTREACH_CONSOLIDATION_AUDIT.md
+    gates:
+      - type: file_exists
+        files: [OUTREACH_CONSOLIDATION_AUDIT.md]
+    max_retries: 3
+    on_fail: halt
+
+  - id: outreach-audit-003
+    phase: build
+    description: "Act only on SAFE candidates; revert anything that breaks the build"
+    prompt: |
+      Read the "Consolidation Candidates" section of OUTREACH_CONSOLIDATION_AUDIT.md.
+
+      For every candidate marked SAFE ONLY: remove or consolidate it exactly as described. After EACH individual change, run pnpm run build. If the build breaks, immediately revert that specific change (git checkout the affected file(s)), move that candidate from SAFE to "NEEDS REID'S DECISION - reclassified, build broke on removal" in the audit doc with the real build error pasted in as evidence, and continue to the next candidate.
+
+      Do NOT act on anything marked NEEDS REID'S DECISION in this prompt, regardless of how straightforward it seems once you are looking directly at the code. That judgment call is explicitly out of scope for this queue.
+
+      Run pnpm run build one final time at the end and confirm it is clean.
+    expected_outputs:
+      - OUTREACH_CONSOLIDATION_AUDIT.md
+    gates:
+      - type: compile
+      - type: build
+    max_retries: 3
+    on_fail: halt
+
+  - id: outreach-audit-004
+    phase: build
+    description: "Governance sync with explicit open-decisions list"
+    prompt: |
+      1. Confirm pnpm run build is clean.
+      2. Update STATE_OF_THE_BUILD.md and SESSION_STATE.md with two clearly separated lists pulled directly from OUTREACH_CONSOLIDATION_AUDIT.md's final state: (a) what was safely consolidated tonight, with file paths, and (b) the full "NEEDS REID'S DECISION" list, verbatim, so it is impossible to miss in the next session.
+      3. Do not mark this item as resolved or closed in FEATURE_REGISTRY_v2.md or anywhere else - it remains open until Reid makes the remaining calls.
+    expected_outputs:
+      - STATE_OF_THE_BUILD.md
+      - SESSION_STATE.md
+    gates:
+      - type: build
+    max_retries: 3
+    on_fail: halt

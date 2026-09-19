@@ -1,0 +1,122 @@
+project: benavora
+github_repo: Reid64/benavora
+supabase_project_ref: vbjplpquqxxfbpazyalt
+vercel_project_name: benavora
+domain: benavora.com
+
+governance:
+  - AGENTS_v2.md
+  - FEATURE_REGISTRY_v2.md
+  - AGENT_VERIFICATION_LOG.md
+  - BEHAVIORAL_CONTRACTS.md
+  - STANDING_DIRECTIVES.md
+
+settings:
+  max_retries_per_prompt: 3
+  build_model: claude-sonnet-4-6-20250514
+  review_model: claude-sonnet-4-6-20250514
+  report_model: claude-haiku-4-5-20251001
+  permission_mode: acceptEdits
+  allowed_tools: "*"
+  review_frequency: 5
+  governance_check_frequency: 10
+
+prompts:
+
+  - id: ag19-flag-001
+    phase: build
+    description: "Add org-scoped feature flag gating AG-19 RelationshipBuilderAgent, default OFF"
+    prompt: |
+      CRITICAL CONSTRAINT: this queue must NOT change default production behavior for any existing org. The Generation-1 FunderRelationshipAgent must remain the active path for every org unless that org has an explicit platform_config row turning the new flag on. Do not flip this flag to true for Faith Foundation or any real production org as part of this queue - that decision belongs to Reid after live validation, not to this run.
+
+      Read C:\Users\manag\Documents\benavora\worker\autonomous-orchestrator.ts in full, specifically the section where it instantiates FunderRelationshipAgent per its own header comment (search for "RelationshipBuilderAgent" to find the exact substitution point documented there).
+      Read C:\Users\manag\Documents\benavora\src\lib\agents\relationship-builder-agent.ts in full, specifically its exported class, constructor signature, and its run() method's expected call signature (e.g. run("scheduled") vs run("manual")).
+      Read C:\Users\manag\Documents\benavora\src\lib\agents\funder-relationship-agent.ts (or wherever the Gen-1 agent actually lives - confirm the real path via grep, do not assume) to see its exact invocation signature so the flag branch can call either agent through a compatible interface.
+
+      Add a new platform_config key convention: key = "feature.relationship_builder_v2", value = "true" | "false" (string, matching this codebase's existing boolean-as-string convention used elsewhere in platform_config, e.g. feature.autonomous_mode).
+
+      In worker/autonomous-orchestrator.ts, at the exact substitution point identified above, add a real org-scoped platform_config lookup (using the org_id already in scope at that point, filtered with .eq("organization_id", orgId) per the fix already shipped in commit 2f61a92) for this key. If the value is exactly "true", instantiate RelationshipBuilderAgent and call its real run() method. Otherwise (missing row, any other value, or query error), fall back to the existing FunderRelationshipAgent path unchanged - the fallback must be the safe default, not the new path.
+
+      INCREMENTAL TEST CHECKPOINT: run pnpm tsc --noEmit now and confirm 0 errors before continuing.
+    expected_outputs:
+      - worker/autonomous-orchestrator.ts
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: halt
+
+  - id: ag19-flag-002
+    phase: build
+    description: "Confirm relationship_memory is the real write target for Phase B and wire it correctly"
+    prompt: |
+      relationship_memory now exists in production (confirmed live 2026-08-11 via direct psql - columns: id, org_id, entity_id, entity_type, memory_type, content, signal_date, actioned, created_at, with an org-scoped RLS policy).
+
+      Read src/lib/agents/relationship-builder-agent.ts's Phase B code (the multi-hop warm-introduction pathfinder) in full and confirm every write it makes to relationship_memory uses org_id as the actual column name (not organization_id - re-check the real column name against the schema above, since this codebase has both conventions in different tables and using the wrong one will fail silently or throw, not just warn).
+
+      If any write path uses the wrong column name or is missing org_id entirely, fix it now.
+
+      If the agent's writes assume any other table or column that does not match current live schema, fix those too - verify each assumption against a real psql \d query, not against the agent's own comments.
+    expected_outputs:
+      - src/lib/agents/relationship-builder-agent.ts
+    gates:
+      - type: compile
+    max_retries: 3
+    on_fail: halt
+
+  - id: ag19-flag-003
+    phase: build
+    description: "Add per-org settings toggle for the flag, admin/owner gated"
+    prompt: |
+      Read C:\Users\manag\Documents\benavora\src\app\(dashboard)\settings\agents\page.tsx in full (this is the real Autonomous Settings Panel per FEATURE_REGISTRY_v2.md row #213 - confirm this by checking its actual fetch() calls before editing).
+
+      Add a new toggle to this page: "Relationship Builder v2 (Beta)" with a short description sourced from AGENTS_v2.md's real description of AG-19's Phase A/B scope. Gate visibility and the ability to change it to org owner/admin role only, matching the existing role-gating pattern already used elsewhere on this page.
+
+      Wire the toggle to read/write the feature.relationship_builder_v2 platform_config key added in ag19-flag-001, through a real API route (create one at src/app/api/settings/agents/relationship-builder-v2/route.ts if no suitable existing route handles arbitrary platform_config flag toggles - check first).
+
+      Default the toggle's displayed state to OFF when no row exists, matching the safe-fallback behavior already built into the worker.
+    expected_outputs:
+      - src/app/(dashboard)/settings/agents/page.tsx
+    gates:
+      - type: compile
+      - type: build
+    max_retries: 3
+    on_fail: halt
+
+  - id: ag19-flag-004
+    phase: build
+    description: "Real test proving the flag actually gates behavior, using a disposable org"
+    prompt: |
+      Create a real disposable test org (not Faith Foundation) via direct insert or the real signup flow.
+
+      Write src/__tests__/integration/ag19-relationship-builder-flag.test.ts that:
+      1. Confirms with the flag unset/false, the orchestrator's relationship logic path instantiates the Gen-1 FunderRelationshipAgent (assert via whatever real, observable side effect distinguishes the two agents - e.g. which table gets written, or a log/marker each agent's run() call produces).
+      2. Sets feature.relationship_builder_v2 = "true" for the disposable test org only.
+      3. Confirms the orchestrator's relationship logic path now instantiates RelationshipBuilderAgent and that a real run() call completes without error and writes to relationship_memory with the correct org_id.
+      4. Confirms Faith Foundation's real org (b1ab7402-dfc2-4712-869f-70ea3566cc1d) still has no such row and is therefore unaffected by this entire queue.
+      5. Cleans up the disposable org and its rows at the end.
+
+      Run this test for real and confirm it passes - paste the actual test runner output.
+    expected_outputs:
+      - src/__tests__/integration/ag19-relationship-builder-flag.test.ts
+    gates:
+      - type: compile
+      - type: test
+    max_retries: 3
+    on_fail: halt
+
+  - id: ag19-flag-005
+    phase: build
+    description: "Governance sync - explicit, unambiguous about what this queue did NOT decide"
+    prompt: |
+      1. Run pnpm run build and pnpm tsc --noEmit, fix any errors.
+      2. Update FEATURE_REGISTRY_v2.md row #100: status becomes "BUILT (flagged, default OFF)" with today's date, citing the real test from ag19-flag-004 as evidence. Update row #200 (AG-19 Autonomous Relationship Builder) to match - it is no longer "never wired," it is "wired behind an opt-in flag, default OFF for every existing org including Faith Foundation."
+      3. Update STATE_OF_THE_BUILD.md and SESSION_STATE.md with an explicit, unmissable note: "AG-19 (RelationshipBuilderAgent) is now reachable via feature.relationship_builder_v2, but this flag was NOT turned on for any production org by this queue. The decision to cut any org over from the Gen-1 FunderRelationshipAgent to this agent, partially or fully, is Reid's call and has not been made. Do not flip this flag for Faith Foundation without a live validation pass first."
+    expected_outputs:
+      - FEATURE_REGISTRY_v2.md
+      - STATE_OF_THE_BUILD.md
+      - SESSION_STATE.md
+    gates:
+      - type: compile
+      - type: build
+    max_retries: 3
+    on_fail: halt

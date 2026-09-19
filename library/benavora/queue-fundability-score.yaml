@@ -1,0 +1,47 @@
+project: benavora
+governance:
+- BLUEPRINT_v2.md
+- SCHEMA_REGISTRY_v2.md
+- AGENTS_v2.md
+- AUTONOMOUS_PLATFORM_VISION.md
+- FEATURE_REGISTRY_v2.md
+- STATE_OF_THE_BUILD.md
+- STANDING_DIRECTIVES.md
+prompts:
+- id: fund-001
+  name: Governance sync and fundability score schema plus agent
+  prompt: |
+    First: sync all governance docs: $repo = 'C:\Users\manag\Documents\benavora'; $forge = 'C:\Users\manag\Documents\FORGE\projects\benavora'; Get-ChildItem $repo -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName (Join-Path $forge $_.Name) -Force }
+
+    Read SCHEMA_REGISTRY_v2.md in full. Read AUTONOMOUS_PLATFORM_VISION.md section on Fundability Intelligence Score.
+    Read src/lib/agents/autonomous-base.ts in full.
+    Read src/lib/agents/probability-scoring-agent.ts in full.
+
+    Create migration at src/supabase/migrations/[NEXT]_fundability_intelligence_score.sql:
+    CREATE TABLE IF NOT EXISTS fundability_scores (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, opportunity_id uuid REFERENCES opportunities(id) ON DELETE CASCADE, overall_score integer, probability_without_fixes integer, probability_with_fixes integer, confidence text, deficiencies jsonb DEFAULT '[]', recommendation text, generated_at timestamptz DEFAULT now());
+    ALTER TABLE fundability_scores ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY fundability_org ON fundability_scores USING (org_id = (SELECT organization_id FROM profiles WHERE id = auth.uid()));
+
+    Apply migration via Supabase SQL editor at https://supabase.com/dashboard/project/vbjplpquqxxfbpazyalt/sql/new if Management API fails.
+
+    Create src/lib/agents/fundability-scorer-agent.ts extending AutonomousAgent. The agent scores each opportunity with: overall_score 0-100, probability_without_fixes, probability_with_fixes showing what changes if deficiencies are resolved, list of specific deficiencies with fix_action for each, recommendation text. Call Claude (claude-sonnet-4-6, max_tokens 1500) with full org profile plus opportunity requirements. Insert into fundability_scores. Log decision. This file must be at least 200 lines of real implementation.
+
+    Run pnpm tsc --noEmit, fix all errors.
+    Commit: git add -A; git commit -m 'feat: fundability score schema and AG-29 scorer agent'; git push.
+
+- id: fund-002
+  name: Fundability API routes and UI panel plus deploy
+  prompt: |
+    Read src/lib/agents/fundability-scorer-agent.ts in full.
+    Read src/app/(dashboard)/opportunities/[id]/page.tsx in full.
+    CRITICAL: Inline style={{}} only. Hardcoded hex values.
+
+    Create src/app/api/intelligence/fundability/route.ts: GET returns fundability_scores for org. POST triggers FundabilityScorer agent.
+
+    Add Fundability Intelligence panel to opportunity detail page below eligibility section. Show two large probability numbers side by side: Current Probability (probability_without_fixes) and With Fixes (probability_with_fixes) with +X delta badge in green. List deficiencies with colored left bars (auto-fixable #10B981, manual #F59E0B). Analyze button calls POST route.
+
+    Update FEATURE_REGISTRY_v2.md feature 217 status to BUILT.
+    Run pnpm tsc --noEmit. Run pnpm build, fix all errors.
+    git add -A; git commit -m 'feat: fundability API routes and UI panel on opportunity detail'; git push.
+    npx vercel deploy --prod.
+    Report the production URL.

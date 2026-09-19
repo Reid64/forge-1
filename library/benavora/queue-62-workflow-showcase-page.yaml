@@ -1,0 +1,101 @@
+project: benavora
+github_repo: Reid64/benavora
+supabase_project_ref: vbjplpquqxxfbpazyalt
+vercel_project_name: benavora
+domain: benavora.com
+
+governance:
+  - FEATURE_REGISTRY_v2.md
+  - governance/DESIGN_SYSTEM.md
+  - BEHAVIORAL_CONTRACTS.md
+
+settings:
+  max_retries_per_prompt: 3
+  build_model: claude-sonnet-4-6-20250514
+  review_model: claude-sonnet-4-6-20250514
+  report_model: claude-haiku-4-5-20251001
+  permission_mode: acceptEdits
+  allowed_tools: "*"
+  review_frequency: 5
+  governance_check_frequency: 10
+
+prompts:
+
+  - id: workflow-page-plan-001
+    phase: build
+    description: "Map the real, accurate pipeline against what's actually built - no aspirational copy"
+    prompt: |
+      Reid wants a "See More" button on the homepage, under the "Six AI systems working in parallel" section, linking to a dedicated deep-dive page that visually walks through the full platform pipeline: onboarding -> opportunity research/discovery -> filtering/scoring -> populating into Draft Generator and/or AutoApply -> pulling in proven successful narratives -> injecting them into new drafts -> triggering ongoing/continuous research -> the email parser responding to inbound opportunity-related email -> email mail-merge campaigns to foundations/other nonprofits/local businesses.
+
+      Read the real, current FEATURE_REGISTRY_v2.md and the real code for each of these stages before writing any page copy - every claim on this page must be accurate to what's actually built and live today, not aspirational. Specifically confirm/correct against reality:
+      - Onboarding: real 7-step wizard, Digital Twin builder.
+      - Research/discovery: real AG-17 Discovery Agent + Grants.gov/SAM.gov/ProPublica sources.
+      - Filtering/scoring: real eligibility scoring + probability engine (row #102, deterministic, hand-verified).
+      - Draft Generator + AutoApply population: real, confirm exact real trigger flow.
+      - Proven narrative reuse: real Recursive Learning system (row #14) + Knowledge Base proven-narrative badges.
+      - Ongoing/continuous research triggers: confirm what's real here (nightly autonomous pipeline vs one-time) - do not overstate.
+      - Email parser responding to opportunities: this is IMPORTANT to get right - per tonight's own verification (EMAIL_PARSER_VERIFICATION_2026-08-13.md), the real Email Parsing Agent EXTRACTS/CLASSIFIES inbound email correctly, but auto-REPLY/RESPOND capability is CONFIRMED ABSENT - do not describe this page as if the platform auto-responds to opportunities via email, since that capability does not exist. Describe accurately what it does do (classify, extract, flag for human action) instead.
+      - Email mail-merge campaigns to foundations/nonprofits/local businesses: this is the real Email engine (email_sequence_steps/email_campaign_sequences, the system consolidated onto tonight) - confirm current real capability and describe accurately.
+
+      Write WORKFLOW_PAGE_PLAN_2026-08-15.md: the real, accurate 7-8 stage narrative (corrected per the findings above), what real illustrative animation each stage should show (e.g. an animated counter incrementing, a simulated browser-automation visual, a simulated database-population effect) using clearly-synthetic/sample data, NOT real customer/funder data - state this explicitly as a hard requirement for the next prompt, not a suggestion.
+    expected_outputs:
+      - WORKFLOW_PAGE_PLAN_2026-08-15.md
+    gates:
+      - type: file_exists
+        files: [WORKFLOW_PAGE_PLAN_2026-08-15.md]
+    max_retries: 3
+    on_fail: halt
+
+  - id: workflow-page-build-001
+    phase: build
+    description: "Build the actual animated deep-dive workflow page"
+    prompt: |
+      Read WORKFLOW_PAGE_PLAN_2026-08-15.md in full before building anything - the page must match this plan's corrected, accurate stage descriptions exactly, not a reinterpretation.
+
+      Build a new page (e.g. /how-it-works or /platform, pick a clean route matching this site's existing URL conventions) with a scrollable, visually rich walkthrough of the real pipeline stages from the plan. For each stage, build a real, polished CSS/JS animation illustrating it using clearly-synthetic sample data - explicitly labeled or framed as illustrative (e.g. "Illustrative example" or similar honest framing), never presented as live real customer telemetry. Use whatever design tooling is now available post-CSS-fix (shadcn/ui components, real Tailwind styling) rather than the older inline-hex-only pattern, if the CSS override investigation confirmed that's now safe for this page - check CSS_OVERRIDE_INVESTIGATION_2026-08-15.md's real conclusion before choosing.
+
+      Match this site's existing visual language (colors, typography, spacing) from the current homepage - this should feel like a natural continuation of the site, not a bolted-on separate design.
+
+      Real live test: load the page, confirm every animation actually renders and plays (not just present in code), confirm no console errors, confirm mobile responsiveness at a basic level (page doesn't break at a narrow viewport).
+    expected_outputs:
+      - src/app/how-it-works/page.tsx
+    gates:
+      - type: compile
+      - type: build
+    max_retries: 3
+    on_fail: halt
+
+  - id: workflow-page-linkbutton-001
+    phase: build
+    description: "Add the See More button to the homepage, wired to the real new page"
+    prompt: |
+      Read the real homepage source (whatever file renders the marketing homepage - confirm exact path, it's the page fetched at https://benavora.com) in full.
+
+      Add a real "See it in action" (or similar clear label - avoid literally "See More," write real, compelling button copy) button/link immediately after the "Six AI systems working in parallel" section, styled consistently with the page's existing CTA buttons (matching "Start Free Trial"'s visual treatment). Wire it to a real Next.js Link to the new page built in the prior prompt - confirm the href is a real route, not a "#" placeholder (the same placeholder-link bug found tonight in the nav - do not repeat it here).
+
+      While in this file: also fix the two real bugs found tonight in this same homepage - the "Sign In"/"Product"/"For Consultants" nav links currently point at href="#" placeholders instead of real routes (wire them to real destinations - Sign In should go to the real /login page; Product and For Consultants can go to real anchor sections or real pages if they exist, confirm which before choosing), and the Enterprise pricing inconsistency ($1,997/mo shown in the pricing card vs $2,497/mo shown in the "How we compare" section further down the same page - these must match; confirm which figure is the real, current, intended price and correct the other to match).
+
+      Real live test: confirm the new See More button navigates to the real new page, confirm Sign In now goes somewhere real, confirm both pricing mentions of Enterprise now show the same number.
+    expected_outputs:
+      - src/app/page.tsx
+    gates:
+      - type: compile
+      - type: build
+    max_retries: 3
+    on_fail: halt
+
+  - id: workflow-page-verify-sync-001
+    phase: build
+    description: "Governance sync"
+    prompt: |
+      1. Run pnpm run build and pnpm tsc --noEmit, fix any errors.
+      2. Update STATE_OF_THE_BUILD.md and SESSION_STATE.md summarizing the new workflow page, the button, and the two bug fixes (placeholder nav links, pricing inconsistency).
+      3. Scoped git add, commit with message "feat: animated workflow deep-dive page + homepage CTA button; fix placeholder nav links and Enterprise pricing inconsistency", git push.
+    expected_outputs:
+      - STATE_OF_THE_BUILD.md
+      - SESSION_STATE.md
+    gates:
+      - type: compile
+      - type: build
+    max_retries: 3
+    on_fail: halt

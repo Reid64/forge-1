@@ -1,0 +1,469 @@
+governance:
+- STATE_OF_THE_BUILD.md
+- SESSION_STATE.md
+- AGENTS_v2.md
+project: benavora
+settings:
+  max_retries_per_prompt: 2
+  permission_mode: acceptEdits
+prompts:
+- id: ar-15-1-harness-full-run
+  name: Phase 15.1 Run the exercise harness against every agent, for real
+  description: The harness has existed since AR-4.1 and has never done a full pass
+  phase: "15"
+  prompt: |
+    BENAVORA - PHASE 15.1 - FULL HARNESS PASS
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    scripts/audit/exercise-all-agents.ts was built in AR-4.1 and has never
+    executed a complete pass. It invokes each agent against the
+    EXERCISE-HARNESS- fixture org, records what actually happened, and refuses
+    to call anything a success without a verified agent_runs or pil_agent_runs
+    row. It defaults to a 25-agent cap and always exits 0 - it is a measuring
+    instrument, not a gate.
+
+    RUN IT AGAINST EVERYTHING. Raise the cap. Every family. Produce
+    AGENT_EXERCISE_REPORT.md and agent-exercise-results.json.
+
+    THIS SPENDS REAL MONEY on Console credits. Before starting:
+      - Confirm a cost_budgets row exists for the harness org with a real
+        limit, using the AR-10.3 period scoping. Run under it.
+      - Report the projected cost from the agent count and typical token use
+        BEFORE running, then the actual cost from ai_usage_log after.
+      - If projected spend exceeds the budget, run in families and report
+        after each rather than blowing through it.
+
+    DO NOT let a failing agent stop the pass. Every agent gets invoked; every
+    outcome gets recorded. A crash is data.
+
+    Per agent record: invoked yes/no, outcome (success / threw / timeout /
+    no_effect / skipped), duration, error message with its real cause (AR-7.3
+    made these honest - use them), whether a DB row appeared, and whether it
+    cost anything.
+
+    CROSS-REFERENCE against test-evidence/AGENT_CENSUS.md from AR-13.1.
+    Where the harness result disagrees with the census verdict, that
+    disagreement is itself a finding - report every one. The census is built
+    from production history; the harness is built from forced invocation. An
+    agent that works when forced but never runs in production has a wiring
+    problem, not a code problem, and that is a different fix.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    AGENTS_v2.md with the outcome distribution.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm test. Real numbers. Then state: agents invoked, the
+    count in each outcome bucket, total cost incurred, and how many harness
+    results contradicted the census.
+
+    COMMIT (scoped - never `git add -A`)
+    git add AGENT_EXERCISE_REPORT.md agent-exercise-results.json test-evidence scripts/audit STATE_OF_THE_BUILD.md SESSION_STATE.md AGENTS_v2.md
+    git commit -m "[FORGE] AR-15.1: first full exercise-harness pass over every agent, with cost recorded"
+    git push origin main
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - AGENT_EXERCISE_REPORT.md
+    - agent-exercise-results.json
+  - type: shell
+    run: |-
+      node scripts/audit/forge-gates/ar-12-harness-report.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-15-2-triage-verdicts
+  name: Phase 15.2 A WIRE or DELETE verdict for every never-executed agent
+  description: 51 agents, one verdict each, with evidence - no agent left ambiguous
+  phase: "15"
+  prompt: |
+    BENAVORA - PHASE 15.2 - TRIAGE THE NEVER-EXECUTED
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Read AGENT_EXERCISE_REPORT.md, test-evidence/AGENT_CENSUS.md,
+    AGENT_INVOCATION_MAP.md and REMEDIATION_PLAN.md.
+
+    Roughly 51 agent modules have never executed in production. Every one gets
+    exactly one verdict in test-evidence/AGENT_TRIAGE_51.md, with the evidence
+    that justifies it:
+
+      WIRE    - it works when the harness forces it, it does something no
+                other agent does, and it has a plausible trigger. Name the
+                trigger it should get.
+      FIX     - it is wanted but broken. Name the defect from the harness
+                error, with its real cause.
+      DELETE  - it duplicates a working agent, or has no caller and no
+                purpose the platform needs, or was superseded. Name what
+                replaces it.
+      DEFER   - it depends on a product decision only Reid can make. State
+                the decision in one sentence.
+
+    NO AGENT MAY BE LEFT UNVERDICTED. If you genuinely cannot decide, that is
+    DEFER with the question written out - not silence.
+
+    BE WILLING TO SAY DELETE. This platform has carried dead agents through
+    three audits, and each one has made the inventory harder to reason about
+    and every count less trustworthy. An agent nobody calls, that duplicates
+    one that works, is a liability. The 2026-09-16 audit already flagged
+    duplicates and orphans; use that list as a starting point, not an answer.
+
+    LOOK FOR DUPLICATE FAMILIES explicitly. Where several agents do nearly the
+    same job, say which one is canonical and why, and mark the rest DELETE or
+    FIX-AND-MERGE. Consolidation is the point of this phase, not a side effect.
+
+    OUTPUT ALSO a machine-readable test-evidence/agent-triage-51.json so
+    phase 15.3 can execute the verdicts without re-reading prose.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    AGENTS_v2.md with the verdict counts.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm test. Real numbers. Then state the count in each
+    verdict bucket and list every DEFER with its one-sentence question, so
+    Reid can answer them in one sitting.
+
+    COMMIT (scoped - never `git add -A`)
+    git add test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md AGENTS_v2.md
+    git commit -m "[FORGE] AR-15.2: WIRE/FIX/DELETE/DEFER verdict with evidence for every never-executed agent"
+    git push origin main
+  gates:
+  - type: compile
+  - type: file_exists
+    files:
+    - test-evidence/AGENT_TRIAGE_51.md
+    - test-evidence/agent-triage-51.json
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-15-3-wire-core
+  name: Phase 15.3 Wire the CORE-family agents the triage marked WIRE
+  description: One family per prompt - wiring fifty agents in one pass is how half of them get half-wired
+  phase: "15"
+  prompt: |
+    BENAVORA - PHASE 15.3 - WIRE THE CORE FAMILY
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Read test-evidence/agent-triage-51.json. Handle ONLY agents in the
+    `core` family (src/lib/agents/**) marked WIRE or FIX. Later prompts in
+    this queue take PIL, AutoApply and the remainder. Do not reach outside
+    your family - another prompt owns those and will collide with you.
+
+    FOR EACH, the work is not done until it is TRIGGERED, not merely callable:
+      - Add it to the trigger AR-15.2 named: an orchestrator step, a queue
+        case, a cron entry, an event handler. Use the scheduling AR-14.2
+        established. Do NOT add a new scheduler.
+      - Give it an agent identity so its runs land in agent_runs.
+      - Apply AR-14.2's rules: an empty pass records `skipped`, never a plain
+        success, and the interval matches the rate its work actually arrives.
+      - Put it under a cost budget if it calls Claude or a paid API.
+      - Pick an AR-11.4 timeout class and say which.
+
+    DO NOT WIRE EVERYTHING TO RUN EVERY MINUTE. ag-29 produced 63,941 empty
+    runs that way. Each interval gets a justification in a comment, from that
+    agent's own work-arrival data.
+
+    STAGGER. If every newly wired agent fires on the same minute you create a
+    thundering herd against Supabase and the Anthropic API. Spread them across
+    the hour and state the offsets you chose.
+
+    REPORT PER AGENT: wired yes/no, its trigger, its interval and why, its
+    budget scope, its timeout class. An agent you could not wire is a finding
+    - name it and why, do not skip it silently.
+
+    INCREMENTAL TESTING CHECKPOINT
+    Extend src/__tests__/integration/newly-wired-agents.test.ts with a case
+    per agent wired here: reachable from its declared trigger, writes an
+    agent_runs row, an empty pass is distinguishable, respects its timeout.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    AGENTS_v2.md and test-evidence/AGENT_INVOCATION_MAP.md.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm run build:worker, pnpm test. Real
+    numbers. Then state how many core agents you wired and how many have
+    already produced a real agent_runs row. If none have fired yet, say so
+    plainly rather than claiming success.
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/lib/agents worker src/__tests__ test-evidence
+    git commit -m "[FORGE] AR-15.3: core-family WIRE verdicts executed with staggered, justified intervals"
+    git push origin main
+  gates:
+  - type: compile
+  - type: test
+  - type: file_exists
+    files:
+    - src/__tests__/integration/newly-wired-agents.test.ts
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-15-4-wire-pil
+  name: Phase 15.4 Wire the PIL-family agents the triage marked WIRE
+  description: The BEN-XXX-NN squads, on their own pass
+  phase: "15"
+  prompt: |
+    BENAVORA - PHASE 15.4 - WIRE THE PIL FAMILY
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Read test-evidence/agent-triage-51.json. Handle ONLY agents in the `pil`
+    family (src/lib/pil/agents/**, the BEN-XXX-NN squads across APP, DIS, INT,
+    KNW, OPS, QLF, REL, STR and SUP). AR-15.3 took the core family.
+
+    PIL SPECIFICS that differ from the core family - get these right:
+      - PIL runs are recorded in pil_agent_runs, not agent_runs. Its identity,
+        status and error handling follow the PIL framework.
+      - PIL cost goes through the AR-10.1 resolver. AR-10.1 found a duplicate
+        ai_usage_log write in AgentRunner.finalizeRun() and a flat unsourced
+        rate across 54 files - do not reintroduce either.
+      - PIL has its own delegation and budget scoping (cost_budgets with
+        scope_type). Every newly wired PIL agent runs under a real scope.
+      - Many PIL agents are designed to be delegated to rather than scheduled.
+        If an agent's natural trigger is delegation from another agent rather
+        than a timer, wire THAT and say so - a cron entry for an agent meant
+        to be called on demand is the wrong fix.
+
+    Everything else follows AR-15.3: real trigger, identity, empty passes
+    recorded as `skipped`, justified interval, staggered schedule, timeout
+    class, budget.
+
+    REPORT PER AGENT as AR-15.3 did, and additionally: scheduled or delegated,
+    and which squad it belongs to.
+
+    INCREMENTAL TESTING CHECKPOINT
+    Extend the newly-wired suite with PIL cases, asserting pil_agent_runs rows
+    appear and cost lands in ai_usage_log through the resolver.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    AGENTS_v2.md, PIL_AGENT_COMPLETE_ROSTER.md and the invocation map.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm run build:worker, pnpm test. Real
+    numbers. Then state PIL agents wired, how many are scheduled versus
+    delegated, and how many have produced a real pil_agent_runs row.
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/lib/pil worker src/__tests__ test-evidence PIL_AGENT_COMPLETE_ROSTER.md
+    git commit -m "[FORGE] AR-15.4: PIL-family WIRE verdicts executed, scheduled or delegated as each agent's design requires"
+    git push origin main
+  gates:
+  - type: compile
+  - type: test
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-15-5-wire-remainder
+  name: Phase 15.5 Wire everything left - autoapply, intelligence, worker, research
+  description: The families nobody else owns, plus every FIX verdict still open
+  phase: "15"
+  prompt: |
+    BENAVORA - PHASE 15.5 - WIRE THE REMAINDER
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Read test-evidence/agent-triage-51.json. Handle every remaining WIRE and
+    FIX verdict not taken by AR-15.3 (core) or AR-15.4 (PIL): autoapply,
+    intelligence, worker and research families.
+
+    FIX VERDICTS ARE THE PRIORITY HERE. These are agents the triage judged
+    wanted-but-broken, with a defect named from the harness error. Read the
+    harness error for each - AR-7.3 and AR-11.2 made those errors carry their
+    real cause, so the diagnosis should already be in the row.
+
+    AUTOAPPLY CAUTION: the AutoApply pipeline is under active repair in phase
+    16. Wire AutoApply-family agents only where the triage is unambiguous, and
+    do NOT change the submission chain, the approval gate or the mutual
+    exclusion guard - phase 16 owns those. If a wiring decision would touch
+    them, defer it to 16 and say so.
+
+    Everything else follows AR-15.3's rules: real trigger, identity, `skipped`
+    on empty passes, justified staggered interval, timeout class, budget.
+
+    ALSO CLOSE THE LOOP on anything AR-15.3 or 15.4 reported as unwireable.
+    Read their reports. If they left an agent behind with a reason, either
+    resolve it here or carry it forward into the DEFER list with the decision
+    it needs.
+
+    INCREMENTAL TESTING CHECKPOINT
+    Extend the newly-wired suite for this batch and run the whole file - all
+    three batches together - to catch any collision between them.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    AGENTS_v2.md and the invocation map.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm run build:worker, pnpm test. Real
+    numbers. Then state the total wired across 15.3, 15.4 and 15.5, and how
+    many WIRE or FIX verdicts remain unexecuted.
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/lib worker src/__tests__ test-evidence
+    git commit -m "[FORGE] AR-15.5: remaining WIRE and FIX verdicts executed across autoapply, intelligence, worker and research"
+    git push origin main
+  gates:
+  - type: compile
+  - type: test
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-15-6-prove-they-fire
+  name: Phase 15.6 Prove the newly wired agents actually fire in production
+  description: Wiring is a claim until a row exists
+  phase: "15"
+  prompt: |
+    BENAVORA - PHASE 15.6 - PROVE THE WIRING
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Phases 15.3 through 15.5 wired agents. This prompt establishes which of
+    them actually run. Railway auto-deploys on push, so the code is live and
+    the evidence is obtainable now.
+
+    THE WHOLE POINT: on 2026-09-17 five agents were "fixed" and had zero
+    invocations for the next eight hours, and nobody noticed until production
+    was queried directly. A wired agent that never fires is indistinguishable
+    from one that was never wired.
+
+    STEP 1 - Query agent_runs and pil_agent_runs for every agent wired in this
+    queue. Produce test-evidence/WIRING_PROOF.md: agent, expected trigger,
+    expected first-fire window, actually fired yes/no, outcome, and the row id.
+
+    STEP 2 - For every agent that has NOT fired, diagnose why:
+      - its trigger is scheduled further out than the window you have waited
+      - the trigger exists in code but is not live in the deployed build
+      - a feature flag or registry row disables it
+      - it is delegation-triggered and nothing has delegated to it yet
+      - the deployed worker is running an older build - check the Railway
+        deployment against HEAD, since Railway marks deploys SKIPPED when the
+        commit touched no watched files
+    Name the cause per agent. "Not yet" is an acceptable answer ONLY with the
+    expected fire time stated.
+
+    STEP 3 - Where an agent cannot fire because its trigger is wrong, fix the
+    trigger. Where it cannot fire because there is genuinely no work, that is
+    AR-14.2's empty-pass contract working correctly - confirm it records
+    `skipped` rather than nothing at all, so the silence is visible.
+
+    STEP 4 - For anything still not firing after diagnosis, force one
+    invocation through the AR-15.1 harness against the fixture org, so you at
+    least know whether it WOULD work. Record that separately from a real
+    production fire - they are different claims.
+
+    INCREMENTAL TESTING CHECKPOINT
+    Re-run the newly-wired suite. Then query production and report live counts.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    AGENTS_v2.md and the invocation map with real fire evidence.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test. Real numbers. Then state: of
+    the agents wired in this queue, how many have produced a real production
+    row, how many are pending a scheduled window, and how many cannot fire and
+    why.
+
+    COMMIT (scoped - never `git add -A`)
+    git add test-evidence src/lib worker STATE_OF_THE_BUILD.md SESSION_STATE.md AGENTS_v2.md
+    git commit -m "[FORGE] AR-15.6: wiring proven against live production rows, non-firing agents diagnosed"
+    git push origin main
+  gates:
+  - type: compile
+  - type: test
+  - type: file_exists
+    files:
+    - test-evidence/WIRING_PROOF.md
+  - type: shell
+    run: node scripts/audit/forge-gates/live-capture.mjs --table agent_runs --window 6h --min 1 --context agent_runs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-15-7-execute-delete
+  name: Phase 15.4 Delete the dead agents and consolidate the duplicates
+  description: Carrying dead code is why every count in this platform has been untrustworthy
+  phase: "15"
+  prompt: |
+    BENAVORA - PHASE 15.7 - EXECUTE THE DELETE VERDICTS
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Read test-evidence/agent-triage-51.json. Remove every agent marked DELETE
+    and merge every FIX-AND-MERGE into its canonical sibling.
+
+    THIS IS DESTRUCTIVE. Follow this order exactly:
+
+    1. RE-VERIFY EACH ONE before removing. Confirm from production that it has
+       zero runs, and confirm by grep that nothing imports it. An agent with a
+       single caller you missed becomes a build break and a broken feature.
+       Report any that fail re-verification and SKIP them - do not delete on
+       the strength of a document alone.
+
+    2. REMOVE THE WHOLE FOOTPRINT, not just the module: the agent registry
+       entry, the AgentType union member, the exercise-registry entry, any
+       queue case, any cron reference, any governance doc listing. A half
+       deleted agent is worse than a live one.
+
+    3. THE ENUM NEEDS CARE. agent_type is a Postgres enum. You cannot simply
+       drop a value that historical agent_runs rows still reference. Leave the
+       enum value in place, mark it deprecated in a migration comment, and
+       remove it only from the TypeScript union if no rows exist. Say which
+       you did per agent. Never delete or rewrite historical agent_runs rows.
+
+    4. ONE COMMIT PER AGENT OR PER TIGHT FAMILY, with the evidence in the
+       message. If something breaks next week, whoever bisects needs to see
+       exactly what left and why.
+
+    5. AFTER EACH BATCH run typecheck and build. Do not delete thirty modules
+       and then discover the first broke the build.
+
+    CONSOLIDATION: where several agents did nearly the same job, the canonical
+    one must end up carrying any capability the deleted siblings had that it
+    lacked. Migrating a capability is part of the delete, not a follow-up.
+
+    INCREMENTAL TESTING CHECKPOINT
+    After every batch: pnpm typecheck, pnpm run build:worker, pnpm test. Any
+    failure stops the batch and gets reported.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    AGENTS_v2.md, FEATURE_REGISTRY_v2.md and the exercise registry. The agent
+    count in every governance doc must match the count on disk when you finish
+    - reconcile them and state the number.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm run build:worker, pnpm test. Real
+    numbers. Then state: agents deleted, agents merged, agents skipped on
+    re-verification and why, and the final agent count on disk.
+
+    COMMIT (scoped - never `git add -A`)
+    One commit per agent or tight family, each naming its evidence.
+    git push origin main
+  gates:
+  - type: compile
+  - type: test
+  - type: file_exists
+    files:
+    - test-evidence/agent-triage-51.json
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt

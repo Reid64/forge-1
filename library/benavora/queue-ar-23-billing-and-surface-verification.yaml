@@ -1,0 +1,480 @@
+governance:
+- STATE_OF_THE_BUILD.md
+- SESSION_STATE.md
+- BLUEPRINT_v2.md
+project: benavora
+settings:
+  max_retries_per_prompt: 2
+  permission_mode: acceptEdits
+prompts:
+- id: ar-23-1-entitlement-layer
+  name: Phase 23.1 One place that answers what this organization is allowed to do
+  description: Three files in the whole application reference a plan tier today
+  phase: "23"
+  prompt: |
+    BENAVORA - PHASE 23.1 - THE ENTITLEMENT LAYER
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Read test-evidence/BILLING_AUDIT.md. AR-20.4 measured what is sold against
+    what is enforced, and measured empirically what an unpaid organization can
+    do. Three files in all of src/lib and src/app referenced plan_tier,
+    entitlement, subscription_status or usage_limit.
+
+    THIS IS THE SAME SHAPE AS THE cost_budgets DEFECT AR-5.2 FIXED. Before that
+    prompt, spent_usd was read in three places and written by nothing, so
+    hard_stop could never fire. A limit nothing enforces is not a limit. Here
+    the limits are sold to customers.
+
+    BUILD ONE ENTITLEMENT MODULE - src/lib/billing/entitlements.ts - that is
+    the single answer to "may this organization do this, and how much of it is
+    left". Not a helper scattered across call sites. One module, one source of
+    truth, derived from the plan definitions AR-20.4 enumerated.
+
+    IT MUST:
+      - resolve the organization's current plan from subscription state, with
+        an explicit, named default for an organization that has none. Decide
+        whether that default is a free tier or no access, state the decision,
+        and make sure it is the same everywhere.
+      - answer feature access: may this org use this capability at all
+      - answer quota: how much of this metered thing has been used this period,
+        how much remains, and when the period resets. AR-10.3 already built
+        cost budgets with period reset via get_cost_budget_with_reset() -
+        READ THAT AND REUSE ITS PERIOD MECHANISM rather than building a second,
+        inconsistent one. Two independent period-reset implementations will
+        disagree and the disagreement will be invisible.
+      - return a structured, actionable refusal: which limit, current usage,
+        the limit's value, when it resets, and what plan lifts it. A bare false
+        forces every caller to invent its own message, which is how sixty
+        different upgrade prompts get written.
+      - be usable identically on the server, in a route handler, and in a
+        server component.
+
+    src/lib/autoapply/usage-meter.ts ALREADY EXISTS. Determine whether anything
+    calls it and whether exceeding it blocks anything. Then either make it the
+    metering primitive this module consumes, or supersede it explicitly and
+    mark it read-only the way AR-5.1 superseded pil_cost_ledger rather than
+    dropping it. Do not leave two meters live.
+
+    DO NOT ENFORCE ANYTHING IN THIS PROMPT. Build the module and prove it.
+    AR-23.2 enforces, so that if a customer is wrongly blocked the cause is one
+    prompt, not two.
+
+    FAIL CLOSED ON FEATURES, OPEN ON READS. A resolution error must not silently
+    grant a paid feature. It also must not lock a paying customer out of reading
+    their own data. State the rule per capability and be deliberate about it.
+
+    INCREMENTAL TESTING CHECKPOINT
+    src/__tests__/integration/entitlements.test.ts asserting, per plan: feature
+    access matches the plan definition exactly; quota arithmetic is correct at
+    zero, mid-period, exactly at the limit, and over it; the period resets when
+    it should using the AR-10.3 mechanism; an org with no subscription gets the
+    documented default; a resolution failure denies paid features and still
+    permits reads; and the refusal object names the limit, the usage and the
+    reset.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    BLUEPRINT_v2.md and BEHAVIORAL_CONTRACTS.md with the plan matrix - every
+    plan, every limit, every feature - as the single written source of truth.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test. Real numbers. Then print the
+    plan matrix, state the no-subscription default, state what happened to
+    usage-meter.ts, and confirm the period mechanism is shared with AR-10.3
+    rather than duplicated.
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/lib src/__tests__ supabase/migrations test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md BEHAVIORAL_CONTRACTS.md
+    git commit -m "[FORGE] AR-23.1: single entitlement module with structured refusals, sharing AR-10.3's period-reset mechanism instead of duplicating it"
+    git push origin main
+  gates:
+  - type: compile
+  - type: build
+  - type: test
+  - type: file_exists
+    files:
+    - src/lib/billing/entitlements.ts
+    - src/__tests__/integration/entitlements.test.ts
+  - type: shell
+    run: node scripts/audit/forge-gates/route-renders.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-23-2-enforce-at-the-boundary
+  name: Phase 23.2 Enforce on the server, explain in the UI
+  description: A limit enforced only in the browser is not enforced
+  phase: "23"
+  prompt: |
+    BENAVORA - PHASE 23.2 - ENFORCEMENT
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Read test-evidence/BILLING_AUDIT.md for the sold-versus-enforced table, and
+    src/lib/billing/entitlements.ts from AR-23.1.
+
+    ENFORCE EVERY LIMIT ON THE SERVER, AT THE API BOUNDARY. There are 354 route
+    handlers. Any route that consumes a metered resource or exposes a gated
+    feature checks entitlement before doing the work. A check in a React
+    component is a hint to the customer, not enforcement - anyone can call the
+    route directly. If a limit is enforced only client-side today, that is a
+    revenue leak, and AR-20.4 measured which ones.
+
+    ENFORCE ON THE AGENTS TOO. Agent runs and AutoApply submissions are the
+    expensive metered things this product sells. AR-10.3 gave agents mid-run
+    cost-budget enforcement; entitlement must gate them at dispatch as well, so
+    an org past its submission quota does not start a run it may not have. Check
+    the scheduled and queued paths, not only the interactive ones - a quota
+    enforced on the button and not on the cron is not enforced.
+
+    NEVER WEAKEN A SAFETY GUARD TO SIMPLIFY ENFORCEMENT. The AutoApply approval
+    gate, the mutual-exclusion guard, and every tenancy check stay exactly as
+    they are. Entitlement is an additional condition, never a replacement for
+    one.
+
+    THEN MAKE THE REFUSAL A GOOD EXPERIENCE, because this is the moment a
+    customer either upgrades or leaves:
+      - AR-23.1's structured refusal rendered in words: what limit, how much
+        used, when it resets, which plan lifts it, and a working path to change
+        plan
+      - shown BEFORE the customer invests effort where possible. Discovering a
+        quota after writing a grant narrative is a product failure even when
+        the enforcement is technically correct.
+      - usage visible before it is exhausted - remaining quota surfaced on the
+        pages where it is consumed, not buried in settings
+      - approaching-limit warning at a stated threshold
+      - a hard refusal must never look like a crash. AR-21.5's error boundaries
+        must not swallow an entitlement refusal into a generic failure; it is a
+        distinct, designed state, and conflating the two is the same
+        error-versus-absence confusion AR-11.2 fixed in 55 places.
+      - never leak internals in a refusal: no table names, no SQL, no keys, no
+        stack traces.
+
+    DOWNGRADE AND OVERAGE: an org that drops to a plan whose limit its existing
+    data already exceeds must not lose data and must not be soft-locked out of
+    reading it. Define the behaviour explicitly, implement it, and write it
+    down.
+
+    INCREMENTAL TESTING CHECKPOINT
+    src/__tests__/integration/entitlement-enforcement.test.ts asserting: a
+    direct API call past quota is refused with the structured refusal and the
+    correct status; a gated feature is unreachable by direct call on a plan
+    without it; an agent dispatch past quota does not start, on both the
+    interactive and the scheduled path; a refusal renders as its designed state
+    and not as an error; a downgraded org keeps and can read its data; and no
+    refusal exposes an internal identifier.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    BLUEPRINT_v2.md and BEHAVIORAL_CONTRACTS.md with the enforcement contract
+    and the route-by-route enforcement map.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test, npx playwright test. Real
+    numbers. Then state how many sold limits are now enforced out of how many
+    claimed, re-run AR-20.4's unpaid-organization probe and report what an
+    unpaid org can do NOW versus what it could do before, and paste the verdicts
+    of route-renders.mjs and a11y.mjs. If any limit is still unenforced, name it.
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/app src/lib src/components src/__tests__ e2e test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md BEHAVIORAL_CONTRACTS.md
+    git commit -m "[FORGE] AR-23.2: every sold limit enforced server-side at the API boundary and at agent dispatch, with refusals as a designed state rather than a failure"
+    git push origin main
+  gates:
+  - type: compile
+  - type: build
+  - type: test
+  - type: file_exists
+    files:
+    - src/__tests__/integration/entitlement-enforcement.test.ts
+  - type: shell
+    run: node scripts/audit/forge-gates/route-renders.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/a11y.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-23-3-billing-lifecycle
+  name: Phase 23.3 Close the loop from Stripe back into the product
+  description: The webhook verifies its signature correctly - the question is whether anything reads what it writes
+  phase: "23"
+  prompt: |
+    BENAVORA - PHASE 23.3 - THE BILLING LIFECYCLE
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Read test-evidence/BILLING_AUDIT.md.
+
+    WHAT IS ALREADY CORRECT: src/app/api/webhooks/stripe/route.ts verifies the
+    signature with STRIPE_WEBHOOK_SECRET against the raw body before processing,
+    and rejects a missing or bad signature. Confirm it, do not re-engineer it.
+
+    THE QUESTION AR-20.4 ANSWERED IS WHETHER ANYTHING READS WHAT IT WRITES.
+    orchestration_logs had a correct schema, a deployed writer, and zero rows
+    for weeks. ai_usage_log had 49 backfilled rows and nothing arriving. A
+    billing webhook that writes state no read path consumes is that defect in
+    the layer that decides whether you get paid.
+
+    MAKE THE LIFECYCLE COMPLETE AND OBSERVABLE:
+      - every Stripe event this product depends on maps to a defined state
+        transition: checkout completed, subscription created, updated, deleted,
+        payment succeeded, payment failed, trial ending, trial ended.
+        Enumerate them, implement each, and make AR-23.1's entitlement module
+        the only consumer of the resulting state.
+      - IDEMPOTENCY. Stripe retries. Processing the same event twice must not
+        double-apply. Use the event id. AR-6.1 found dedup silently disabled
+        elsewhere in this codebase by a crypto.randomUUID() key - do not repeat
+        that; the key must be deterministic and derived from the event.
+      - OUT-OF-ORDER DELIVERY. Webhooks can arrive out of sequence. A stale
+        update must not overwrite newer state. Guard on the Stripe object's own
+        timestamp or version, not on arrival order.
+      - RECONCILIATION. A scheduled job comparing local subscription state
+        against Stripe as the authority, reporting drift. A missed webhook is
+        invisible without it, and the only symptom is a customer billed for
+        something they cannot use, or using something they are not billed for.
+      - ALERTING on what actually costs money: a failed payment, a webhook
+        signature failure, a reconciliation drift, a subscription in an
+        unexpected state. AR-6 built the alert layer with an alert_type enum
+        and deterministic dedup keys - EXTEND IT, do not fork a second alert
+        inbox, exactly as AR-6.1 refused to.
+      - DUNNING AND EXPIRY as explicit, designed states in the product: what a
+        customer sees during a grace period, what changes when it ends, how
+        they recover. Never silent, never a crash.
+
+    TRIAL AND FREE TIER: define the boundary precisely - what a trial grants,
+    for how long, measured from what event, and what happens at expiry to both
+    access and data. Ambiguity here is how a customer loses work.
+
+    TEST MODE ONLY, ALWAYS. Never process a real payment. Never create a live
+    subscription. Never place a live Stripe key in any test, fixture, log,
+    report or committed file, and redact every secret from every artifact -
+    the same rule that keeps SUPABASE_SERVICE_ROLE_KEY out of CI. Use Stripe's
+    test clock to exercise trial expiry and renewal rather than waiting or
+    faking time in application code.
+
+    INCREMENTAL TESTING CHECKPOINT
+    src/__tests__/integration/billing-lifecycle.test.ts asserting: each event
+    produces the correct state; the same event twice applies once; an
+    out-of-order stale event does not overwrite newer state; a failed payment
+    enters the designed dunning state; trial expiry transitions correctly under
+    a test clock; reconciliation detects deliberately injected drift; and a
+    signature failure raises an alert.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    BLUEPRINT_v2.md and BEHAVIORAL_CONTRACTS.md with the full state machine and
+    every alert it raises.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test. Real numbers. Then state which
+    events are handled, confirm every write has a read path and name the reader,
+    report the reconciliation job's first real run, and paste
+    route-renders.mjs's verdict.
+
+    COMMIT (scoped - never `git add -A`)
+    git add src/app src/lib src/__tests__ supabase/migrations worker test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md BEHAVIORAL_CONTRACTS.md
+    git commit -m "[FORGE] AR-23.3: billing lifecycle closed - idempotent, order-safe, reconciled against Stripe, alerting through AR-6's existing inbox"
+    git push origin main
+  gates:
+  - type: compile
+  - type: build
+  - type: test
+  - type: file_exists
+    files:
+    - src/__tests__/integration/billing-lifecycle.test.ts
+  - type: shell
+    run: node scripts/audit/forge-gates/route-renders.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-23-4-e2e-expansion
+  name: Phase 23.4 Twenty-five routes of coverage across a hundred and seventy-six
+  description: Fourteen percent coverage is why surface defects survived six months of building
+  phase: "23"
+  prompt: |
+    BENAVORA - PHASE 23.4 - E2E COVERAGE
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    MEASURED 2026-09-18 - verify before using: 18 spec files, 53 tests, and 25
+    DISTINCT ROUTES visited across the entire suite. Against 176 routes that is
+    14 percent, and it is the direct reason AR-20.1's census was the first time
+    anyone knew which pages work.
+
+    DO NOT WRITE 176 ROUTE TESTS. A suite that slow gets disabled, and a
+    disabled suite is worse than a small one. AR-8 already had to bound the test
+    gate after it ran unbounded. Build coverage by JOURNEY, not by route:
+
+      1. sign up, onboard as a new org, reach a first screen with value
+      2. discover funders, filter, open a detail, save one
+      3. create an opportunity, generate a draft, edit it, save it
+      4. run AutoApply to the approval gate - and stop there. NEVER submit to a
+         real funder's portal. Fixture portals only.
+      5. cross the entitlement boundary: hit a quota, see the refusal, reach
+         the upgrade path
+      6. tenant isolation: org A cannot read org B by id substitution, on every
+         detail route pattern
+      7. role boundaries: member, admin, owner each see exactly what they should
+      8. the empty state of everything: a brand-new org with no data anywhere
+      9. the failure path: a 500 from an API renders the designed error state,
+         not a blank page or a stack trace
+     10. the marketing conversion path end to end
+
+    JOURNEYS 6, 7 AND 9 ARE THE ONES THAT CATCH REAL DEFECTS and the ones this
+    suite has least of. Journey 6 in particular: a cross-tenant read is the
+    highest-severity defect available here, and one test per detail route
+    pattern is cheap insurance.
+
+    THE SUITE MUST BE HONEST. AR-8 fixed a test gate that passed by excluding
+    the tier it was meant to run. Rules:
+      - a skipped test is reported as skipped, never counted as passed
+      - no test asserts only that a page returned 200
+      - no test is excluded from the gate to make it green
+      - flakiness is fixed, never retried into a pass. Report any test needing
+        a retry and why.
+      - bound the total runtime and state it. FORGE kills a shell gate at 300
+        seconds; the e2e gate must fit its own stated budget.
+
+    AUTHENTICATE PROPERLY for all three roles using storageState, and seed
+    deterministic fixture data rather than depending on whatever is in the
+    database that day - a suite that depends on ambient production data will
+    pass and fail for reasons nobody can trace.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    BLUEPRINT_v2.md and TESTING_v2.md with the journey list, the route coverage
+    figure and the runtime budget.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test, npx playwright test. Real
+    numbers. Then state distinct routes covered before and after, tests added,
+    total suite runtime, how many tests are skipped and why, and paste
+    route-renders.mjs's verdict. Name any journey you could not complete and
+    what blocked it.
+
+    COMMIT (scoped - never `git add -A`)
+    git add e2e playwright.config.ts src/__tests__ test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md TESTING_v2.md
+    git commit -m "[FORGE] AR-23.4: e2e coverage rebuilt around ten real journeys including tenancy, roles and failure paths, with a stated runtime budget and no excluded tiers"
+    git push origin main
+  gates:
+  - type: compile
+  - type: build
+  - type: test
+  - type: shell
+    run: node scripts/audit/forge-gates/route-renders.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
+
+- id: ar-23-5-six-laws-and-handoff
+  name: Phase 23.5 Measure the delta, then say exactly what only Reid can verify
+  description: Law 6 requires a human in a browser and no prompt in this programme can satisfy it
+  phase: "23"
+  prompt: |
+    BENAVORA - PHASE 23.5 - SIX LAWS AUDIT AND SURFACE HANDOFF
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    Close this programme with the instruments it opened with, so the delta is
+    MEASURED rather than claimed.
+
+    RE-RUN EVERYTHING AR-20 RAN, unchanged:
+      - scripts/audit/route-census.mjs, all 176 routes, all three roles
+      - the design-system violation count
+      - the unpaid-organization probe from AR-20.4
+      - the e2e route coverage figure
+    Write test-evidence/SURFACE_DELTA.md as a before-and-after table. Every row
+    is a real measurement from both runs. AR-19 does this for the engine; this
+    is its surface counterpart.
+
+    REPORT REGRESSIONS EXPLICITLY, in their own section, first. A programme that
+    reports only improvements is not reporting. If a route that rendered on
+    2026-09-18 does not render now, it goes at the top of the document.
+
+    SIX LAWS AUDIT PER CORE FEATURE - write
+    test-evidence/SIX_LAWS_SURFACE_AUDIT.md covering: schema with RLS and
+    organization_id policy; API routes taking org from the session and never the
+    body; real UI with imports resolving and empty states handled; real data,
+    company-scoped, zero mocks; wiring - nav, roles, buttons and forms actually
+    saving; and verification.
+
+    LEAVE LAW 6 UNVERIFIED, DELIBERATELY, AND SAY WHY. Law 6 requires a human
+    confirming in a browser. No prompt in this programme can satisfy it, and an
+    agent marking it passed would be exactly the manufactured success this
+    entire remediation exists to remove. AR-19 leaves it UNVERIFIED for the
+    engine by design; do the same here.
+
+    THEN BUILD WHAT REID ACTUALLY NEEDS - test-evidence/REID_REVIEW_PACKET.html,
+    one self-contained page, no external assets:
+      - the before-and-after screenshot pair for every core route, side by side
+      - UNDER 20 ROUTES he must personally confirm, in priority order, each with
+        the specific thing to check and the specific thing that would mean it is
+        wrong. A list of 176 is a list nobody uses.
+      - every claim in this programme still resting on an agent's assertion
+        rather than a measurement, named
+      - every baseline that did not reach zero, with its number
+      - the honest statement about visual quality: a gate can enforce that a
+        component uses a token; NO GATE CAN DECIDE WHETHER THE RESULT LOOKS
+        GOOD. That judgement is Reid's and this packet exists to let him make it
+        in one sitting.
+
+    RECONCILE THE WHOLE PROGRAMME. AR-13 through AR-19 fixed the engine; AR-20
+    through AR-23 fixed the surface. Cross-check: every P0 and P1 in
+    test-evidence/SURFACE_REMEDIATION_PLAN.md is either FIXED with evidence, or
+    OPEN with a reason. Nothing is silently dropped. If an item was not reached,
+    it appears in the remainder with its tier intact - never downgraded to
+    justify closing it.
+
+    STATE THE REMAINDER AND WHAT COMES NEXT, honestly and without inflation.
+    Name the areas neither programme touched at all.
+
+    GOVERNANCE UPDATE
+    Reconcile the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md,
+    BLUEPRINT_v2.md, AGENTS_v2.md, BEHAVIORAL_CONTRACTS.md, TESTING_v2.md and
+    FEATURE_REGISTRY_v2.md against the codebase as it actually is. Where a
+    governance document currently claims something untrue, correcting it is the
+    most valuable output of this prompt - those documents are the source of
+    truth every future session reads instead of remembering.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test, npx playwright test. Real
+    numbers. Then print the full before-and-after table, the regression list,
+    the Six Laws verdict per feature with Law 6 marked UNVERIFIED, the count of
+    routes on Reid's review list, and the verdicts of every gate:
+    work-landed.mjs, route-renders.mjs, design-tokens.mjs, ui-primitives.mjs,
+    route-boundaries.mjs and a11y.mjs.
+
+    COMMIT (scoped - never `git add -A`)
+    git add test-evidence STATE_OF_THE_BUILD.md SESSION_STATE.md BLUEPRINT_v2.md AGENTS_v2.md BEHAVIORAL_CONTRACTS.md TESTING_v2.md FEATURE_REGISTRY_v2.md
+    git commit -m "[FORGE] AR-23.5: surface delta measured with AR-20's own instruments, regressions reported first, Law 6 left UNVERIFIED by design, review packet built for Reid"
+    git push origin main
+  gates:
+  - type: compile
+  - type: build
+  - type: test
+  - type: file_exists
+    files:
+    - test-evidence/SURFACE_DELTA.md
+    - test-evidence/SIX_LAWS_SURFACE_AUDIT.md
+    - test-evidence/REID_REVIEW_PACKET.html
+  - type: shell
+    run: node scripts/audit/forge-gates/design-tokens.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/ui-primitives.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/route-boundaries.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/a11y.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/route-renders.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt

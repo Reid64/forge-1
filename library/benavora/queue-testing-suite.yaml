@@ -1,0 +1,41 @@
+project: benavora
+governance:
+- BLUEPRINT_v2.md
+- BEHAVIORAL_CONTRACTS.md
+- FEATURE_REGISTRY_v2.md
+- STATE_OF_THE_BUILD.md
+- STANDING_DIRECTIVES.md
+prompts:
+- id: test-001
+  name: Governance sync and Playwright E2E infrastructure setup
+  prompt: |
+    First: sync all governance docs: $repo = 'C:\Users\manag\Documents\benavora'; $forge = 'C:\Users\manag\Documents\FORGE\projects\benavora'; Get-ChildItem $repo -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName (Join-Path $forge $_.Name) -Force }
+
+    Read package.json in full.
+
+    Install Playwright: pnpm add -D @playwright/test
+    Create playwright.config.ts: baseURL http://localhost:3000, testDir ./tests/e2e, timeout 30000, retries 1, workers 1.
+    Create tests/e2e/auth.setup.ts: logs in as beta1@benavora-test.com / BetaTest2026, saves auth state to tests/e2e/.auth/user.json.
+    Create tests/e2e/dashboard.spec.ts: tests dashboard loads, FlightPathHUD renders 6 cards, action items shows, autonomous activity feed renders.
+    Create tests/e2e/opportunities.spec.ts: tests opportunities page loads, filter pills work, opportunity links to detail page, probability badge renders.
+    Add package.json scripts: test:e2e and test:e2e:ui.
+
+    Run pnpm tsc --noEmit, fix errors.
+    Commit: git add -A; git commit -m 'feat: Playwright E2E test infrastructure dashboard and opportunities tests'; git push.
+
+- id: test-002
+  name: Autonomous agent unit tests and full test run plus deploy
+  prompt: |
+    Read src/lib/agents/autonomous-base.ts in full.
+    Read src/lib/agents/draft-generation-agent.ts in full.
+
+    Install vitest: pnpm add -D vitest @vitest/ui
+    Create tests/unit/autonomous-base.test.ts: test AUTONOMOUS_HARD_LIMITS constants are set, test confidence_score below 60 forces requiredHumanReview true, test startRun creates agent_runs record with status running, test completeRun updates to completed.
+    Create tests/unit/draft-generation.test.ts: test HARD LIMIT draft agent never sets submitted_at, test always sets pending_review=true and auto_generated=true, test draft limit check stops at max_auto_drafts_per_night.
+    Add package.json scripts: test:unit and test:all.
+
+    Run pnpm test:unit, fix failures.
+    Update STATE_OF_THE_BUILD.md with test coverage notes.
+    git add -A; git commit -m 'test: autonomous agent unit tests hard limits verified full test suite'; git push.
+    npx vercel deploy --prod.
+    Report the production URL.

@@ -1,0 +1,54 @@
+project: benavora
+governance:
+- BLUEPRINT_v2.md
+- SCHEMA_REGISTRY_v2.md
+- AGENTS_v2.md
+- AUTONOMOUS_PLATFORM_VISION.md
+- FEATURE_REGISTRY_v2.md
+- STATE_OF_THE_BUILD.md
+- STANDING_DIRECTIVES.md
+prompts:
+- id: pig2-001
+  name: Governance sync and PIG phase 2 relationship mapper expansion
+  prompt: |
+    First sync governance docs: $repo = 'C:\Users\manag\Documents\benavora'; $forge = 'C:\Users\manag\Documents\FORGE\projects\benavora'; Get-ChildItem $repo -Filter '*.md' | ForEach-Object { Copy-Item $_.FullName (Join-Path $forge $_.Name) -Force }
+
+    Read src/lib/agents/relationship-mapper-agent.ts in full.
+    Read AUTONOMOUS_PLATFORM_VISION.md section on Philanthropic Intelligence Graph full build.
+    Read SCHEMA_REGISTRY_v2.md for pig_nodes and pig_edges tables.
+
+    Upgrade src/lib/agents/relationship-mapper-agent.ts with Phase 2 discovery rules:
+
+    Rule 5 -- Giving cycle alignment: foundations that have funded organizations with same NTEE code as this org in past 3 years. Create edges: relationship_type=giving_cycle_aligned, weight=0.7, evidence=Funded NTEE + code + N times in past 3 years.
+
+    Rule 6 -- Asset size compatibility: foundations whose asset_amount is between 10x and 1000x the org annual budget (orgs that are too small get ignored, orgs that are too large are out of reach). Create edges: relationship_type=asset_compatible, weight=0.6.
+
+    Rule 7 -- Geographic giving history: foundations with city or state matching org service area that have given grants in past. Create edges: relationship_type=geographic_giving_history, weight=0.8.
+
+    Rule 8 -- Board network overlap (requires corporate_relationships table): if a pig_node (foundation) has a named trustee in metadata that matches a corporate_relationships source_entity_name for this org: create edge relationship_type=board_network_overlap, weight=0.95, verified=true.
+
+    Also seed pig_nodes from corporate_intent_signals if table exists: node_type=business, entity_table=corporate_intent_signals.
+
+    Run pnpm tsc --noEmit, fix errors.
+    Commit: git add -A; git commit -m 'feat: PIG Phase 2 -- 4 new relationship discovery rules giving cycle asset size geographic board network'; git push.
+
+- id: pig2-002
+  name: PIG graph analytics and cross-funder pattern detection plus deploy
+  prompt: |
+    Read src/app/(dashboard)/intelligence/graph/page.tsx in full.
+    Read src/lib/agents/relationship-mapper-agent.ts in full.
+    CRITICAL: Inline style={{}} only. Hardcoded hex values. Canvas #D6E4F0.
+
+    Add Analytics panel to graph page (white card below the D3 visualization):
+    Header: Graph Analytics.
+    4 stat cards: Total Nodes, Total Edges, Avg Connections Per Foundation, Strongest Path Score.
+    Top Foundations by Connection Count table: foundation name, edge count, avg weight, top relationship type.
+    Pattern Detection section: list of detected patterns (e.g. 3 foundations in your service area with NTEE alignment and asset compatibility -- strong opportunity cluster). Generate patterns by querying edges grouped by target_node and counting rule types.
+
+    Create src/app/api/intelligence/graph/analytics/route.ts: GET returns node counts by type, edge counts by relationship_type, top 10 most connected nodes, detected opportunity clusters.
+
+    Update FEATURE_REGISTRY_v2.md feature 221 (PIG full build) status to BUILT.
+    Run pnpm tsc --noEmit. Run pnpm build, fix errors.
+    git add -A; git commit -m 'feat: PIG Phase 2 graph analytics cross-funder pattern detection'; git push.
+    npx vercel deploy --prod.
+    Report the production URL.
