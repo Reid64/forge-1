@@ -1,4 +1,4 @@
-﻿# ============================================================
+# ============================================================
 # forge.ps1 - FORGE Master Orchestrator
 # ============================================================
 # Usage: .\forge.ps1 -project brightbox
@@ -54,6 +54,11 @@ $LOG_FILE = "$LOG_DIR\build_$TIMESTAMP.log"
 New-Item -ItemType Directory -Path $STATE_DIR -Force | Out-Null
 New-Item -ItemType Directory -Path $LOG_DIR -Force | Out-Null
 New-Item -ItemType Directory -Path $REPORT_DIR -Force | Out-Null
+
+# ------------------------------------------------------------
+# Slack Notifications
+# ------------------------------------------------------------
+. "$FORGE_ROOT\forge-slack.ps1"
 
 # ------------------------------------------------------------
 # Logging
@@ -140,11 +145,27 @@ console.log(JSON.stringify(data, null, 2));
     $tempJs = Join-Path (Get-Location) "parse-yaml.$PID.js"
     Set-Content -Path $tempJs -Value $nodeScript
     $outFile = Join-Path (Get-Location) "yaml-out.$PID.json"
-    node $tempJs | Set-Content $outFile -Encoding UTF8
+    node $tempJs 2>&1 | Set-Content $outFile -Encoding UTF8
+    $nodeExit = $LASTEXITCODE
     Remove-Item $tempJs -ErrorAction SilentlyContinue
     $json = Get-Content $outFile -Raw -Encoding UTF8
     Remove-Item $outFile -ErrorAction SilentlyContinue
-    return $json | ConvertFrom-Json
+
+    # FG-4 (2026-09-16): node failing here (malformed YAML, js-yaml not
+    # resolvable from the CWD) previously produced an empty $json, a $null
+    # queue, "Found 0 prompts", and a run that ended reporting no failures.
+    # A queue that could not be parsed is a hard stop, not an empty queue.
+    if ($nodeExit -ne 0 -or -not $json -or -not $json.Trim()) {
+        Log "Queue parse FAILED (node exit $nodeExit). Raw output below." "ERROR"
+        Log $json "ERROR"
+        throw "Parse-SimpleYaml: could not parse $filePath - node exited $nodeExit. This is a malformed queue.yaml or a js-yaml resolution failure, not an empty queue."
+    }
+
+    $parsed = $json | ConvertFrom-Json
+    if ($null -eq $parsed -or $null -eq $parsed.prompts -or @($parsed.prompts).Count -eq 0) {
+        throw "Parse-SimpleYaml: $filePath parsed but contains zero prompts. Check that the top-level key is 'prompts:' (not 'phases:') and that indices are sequential."
+    }
+    return $parsed
 }
 
 # ------------------------------------------------------------
@@ -159,16 +180,30 @@ function Invoke-ProcessWithTimeout {
     param(
         [string]$FilePath,
         [string[]]$ArgumentList,
-        [int]$TimeoutSeconds
+        [int]$TimeoutSeconds,
+        [string]$WorkingDirectory = $null
     )
 
     $stdOutFile = [System.IO.Path]::GetTempFileName()
     $stdErrFile = [System.IO.Path]::GetTempFileName()
 
     try {
-        $proc = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList `
-            -NoNewWindow -PassThru `
-            -RedirectStandardOutput $stdOutFile -RedirectStandardError $stdErrFile
+        $startArgs = @{
+            FilePath              = $FilePath
+            ArgumentList          = $ArgumentList
+            NoNewWindow           = $true
+            PassThru              = $true
+            RedirectStandardOutput = $stdOutFile
+            RedirectStandardError  = $stdErrFile
+        }
+        if ($WorkingDirectory) { $startArgs.WorkingDirectory = $WorkingDirectory }
+        $proc = Start-Process @startArgs
+        # Touching .Handle right after Start-Process is required for a
+        # PassThru'd process object to later report a real .ExitCode - without
+        # it, .ExitCode throws (silently, inside the $null-check below) and
+        # every gate here would false-PASS on a real failure. Known
+        # Start-Process -PassThru quirk, not optional.
+        $null = $proc.Handle
 
         $exited = $proc.WaitForExit($TimeoutSeconds * 1000)
         if ($exited) { $proc.WaitForExit() }
@@ -182,7 +217,17 @@ function Invoke-ProcessWithTimeout {
         }
 
         $output = "$(Get-Content $stdOutFile -Raw -ErrorAction SilentlyContinue)$(Get-Content $stdErrFile -Raw -ErrorAction SilentlyContinue)"
-        $exitCode = if ($null -eq $proc.ExitCode) { 0 } else { $proc.ExitCode }
+        # FG-2 (2026-09-16): a null ExitCode must FAIL, never default to 0.
+        # The `$null = $proc.Handle` touch above normally makes ExitCode
+        # readable, but when it does not (access denied, process already
+        # disposed, bitness edge cases) this previously returned 0 -- i.e.
+        # PASS -- for a gate that never reported a result. That is the same
+        # false-pass class as the original .Handle bug, just one layer down.
+        if ($null -eq $proc.ExitCode) {
+            Log "Gate process exited but ExitCode was null - treating as FAILURE, not success." "FAIL"
+            $exitCode = -2
+        }
+        else { $exitCode = $proc.ExitCode }
         return @{ timedOut = $false; exitCode = $exitCode; output = $output }
     }
     finally {
@@ -238,7 +283,13 @@ function Run-Gate {
                 return @{ pass = $false; output = "Missing gate script: $gateScript" }
             }
 
-            $timeoutSeconds = if ($gateType -eq "build") { 900 } elseif ($gateType -eq "deploy_verify") { 600 } else { 300 }
+            # 2026-09-19: compile raised 300 -> 900. next.config.mjs had ESLint and
+            # TypeScript checking disabled during `next build` purely to keep this
+            # gate under 300s. That reopened the gap compile.ps1 exists to close
+            # (28 consecutive failed deploys, per its own header). Both checks are
+            # back on; the budget moves instead. A gate that times out on correct
+            # code is a false failure - the same defect class as a false pass.
+            $timeoutSeconds = if ($gateType -in @("build", "compile")) { 900 } elseif ($gateType -eq "deploy_verify") { 600 } else { 300 }
             $procResult = Invoke-ProcessWithTimeout -FilePath "powershell.exe" `
                 -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $gateScript, "-workDir", $workDir) `
                 -TimeoutSeconds $timeoutSeconds
@@ -288,17 +339,51 @@ function Run-Gate {
             }
         }
         { $_ -in @("shell", "command") } {
-            # Custom shell command gate. Hard timeout: 5 min.
+            # Custom shell command gate. Queue files specify the command under
+            # `run:`; `command:` is accepted too for back-compat. Hard timeout: 5 min.
             $timeoutSeconds = 300
             $cmdText = $gateConfig.command
             if (-not $cmdText) {
                 Log "Gate $($gateType.ToUpper()): FAIL - no command specified in gate config" "FAIL"
-                return @{ pass = $false; output = "No 'command' specified for $gateType gate" }
+                return @{ pass = $false; output = "No 'run' (or 'command') specified for $gateType gate" }
             }
 
-            $procResult = Invoke-ProcessWithTimeout -FilePath "powershell.exe" `
-                -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $cmdText) `
-                -TimeoutSeconds $timeoutSeconds
+            # Precondition: if the command invokes a script file (e.g. `node
+            # scripts/audit/verify-foo.mjs`), confirm that file exists in
+            # $workDir before running it. A missing script here almost always
+            # means the Build Agent turn that was supposed to create it never
+            # actually completed (CLI-level failure, usage/rate limit, crash) -
+            # surface that plainly instead of letting the interpreter's raw
+            # MODULE_NOT_FOUND stack trace stand in for it, which reads like a
+            # code/path bug and sends debugging in the wrong direction.
+            if ($cmdText -match '([.\w/\\-]+\.(mjs|cjs|js|ts|ps1|py))\b') {
+                $scriptRef = $matches[1]
+                $scriptFull = Join-Path $workDir $scriptRef
+                if (-not (Test-Path -LiteralPath $scriptFull)) {
+                    Log "Gate $($gateType.ToUpper()): FAIL - precondition failed, script not found: $scriptRef" "FAIL"
+                    return @{ pass = $false; output = "PRECONDITION FAILED: '$scriptRef' does not exist in $workDir. The Build Agent turn that was supposed to create it did not complete - check the 'Build Agent finished (exit=...)' log line immediately above this gate run for the real error (most likely a CLI-level failure: auth, usage/rate limit, network, or crash), not a bug in the script itself." }
+                }
+            }
+
+            # Run via a temp .ps1 file rather than -Command with an embedded
+            # string: $cmdText commonly contains its own double quotes (e.g.
+            # `node -e "process.exit(1)"`), which Start-Process's -ArgumentList
+            # array re-quoting mangles, silently no-op'ing the command. Writing
+            # the raw text to a file sidesteps command-line requoting entirely.
+            # Also appends an explicit exit, since powershell.exe does not
+            # propagate a native command's exit code to its own by default.
+            $tempScript = Join-Path ([System.IO.Path]::GetTempPath()) "forge-gate-cmd-$([guid]::NewGuid().ToString('N')).ps1"
+            $scriptContent = "$cmdText`nif (`$LASTEXITCODE) { exit `$LASTEXITCODE } else { exit 0 }"
+            Set-Content -Path $tempScript -Value $scriptContent -Encoding UTF8
+
+            try {
+                $procResult = Invoke-ProcessWithTimeout -FilePath "powershell.exe" `
+                    -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $tempScript) `
+                    -TimeoutSeconds $timeoutSeconds -WorkingDirectory $workDir
+            }
+            finally {
+                Remove-Item $tempScript -Force -ErrorAction SilentlyContinue
+            }
 
             if ($procResult.timedOut) {
                 Log "Gate $($gateType.ToUpper()): FAILED - TIMEOUT after ${timeoutSeconds}s, process tree killed" "FAIL"
@@ -314,15 +399,28 @@ function Run-Gate {
             }
         }
         "schema" {
-            # Verify Supabase tables exist
-            Log "Gate SCHEMA: Checking Supabase tables..." "GATE"
-            # This would query information_schema - simplified here
-            Log "Gate SCHEMA: PASS (manual verify recommended)" "PASS"
-            return @{ pass = $true; output = "Schema check passed" }
+            # FG-6 (2026-09-16): this gate previously logged
+            # "PASS (manual verify recommended)" and returned pass=$true
+            # WITHOUT querying anything. Every queue that used `- type: schema`
+            # banked a free green for a database check that never ran. A gate
+            # that cannot verify must fail, never pass with a caveat.
+            #
+            # Real verification belongs in a `shell` gate the queue owns, e.g.
+            #   - type: shell
+            #     run: |-
+            #       node scripts/audit/verify-schema.mjs table_a table_b
+            # so the assertion is explicit, versioned, and reviewable.
+            Log "Gate SCHEMA: FAIL - the built-in schema gate performs no verification and has been disabled." "FAIL"
+            return @{ pass = $false; output = "The built-in 'schema' gate never queried the database; it returned a hardcoded pass. It is now disabled. Replace it in the queue with an explicit shell gate that runs a real schema assertion script and exits non-zero when a table or column is missing." }
         }
         default {
-            Log "Unknown gate type: $gateType" "WARN"
-            return @{ pass = $true; output = "Unknown gate skipped" }
+            # FG-5 (2026-09-16): an unrecognized gate type previously returned
+            # pass=$true ("Unknown gate skipped"), so a single typo in a queue
+            # -- `typecheck` instead of `compile`, `e2e` instead of `test` --
+            # turned a required gate into a silent free pass. A gate FORGE
+            # cannot execute has proven nothing and must fail loudly.
+            Log "Unknown gate type: '$gateType' - FAILING. Valid types: compile, build, lint, test, deploy_verify, file_exists, shell, command." "FAIL"
+            return @{ pass = $false; output = "UNKNOWN GATE TYPE '$gateType'. FORGE cannot execute it, so it cannot pass. Valid types: compile, build, lint, test, deploy_verify, file_exists, shell, command. Fix the queue." }
         }
     }
 }
@@ -335,37 +433,50 @@ function Invoke-BuildAgent {
         [string]$prompt,
         [string]$workDir,
         [string[]]$governanceDocs,
-        [string]$model = "claude-sonnet-4-6-20250514"
+        [string]$model = "claude-sonnet-5",
+        [int]$promptIndex = 0
     )
+
+    # NOTE on prompt caching: Anthropic's cache_control:{type:"ephemeral"}
+    # is a field on a JSON `messages` request body sent to the Messages API.
+    # This function does not build one - $fullPrompt below is plain text
+    # piped over stdin to the `claude` CLI, which makes its own API calls
+    # internally. There is no JSON payload here to attach cache_control to,
+    # so governance-doc caching cannot be controlled from this script.
 
     # Build the full prompt with governance context
     $governanceContext = ""
-    foreach ($doc in $governanceDocs) {
-        $docPath = Join-Path $PROJECT_DIR $doc
-        if (-not (Test-Path $docPath)) {
-            $codebaseRoot = Join-Path (Split-Path $FORGE_ROOT -Parent) $project
-            $altPath = Join-Path $codebaseRoot $doc
-            if (Test-Path $altPath) {
-                $docPath = $altPath
-            } else {
-                $specPath = Join-Path $codebaseRoot "specs\$doc"
-                if (Test-Path $specPath) { $docPath = $specPath }
+    if ($promptIndex -eq 0) {
+        foreach ($doc in $governanceDocs) {
+            $docPath = Join-Path $PROJECT_DIR $doc
+            if (-not (Test-Path $docPath)) {
+                $codebaseRoot = Join-Path (Split-Path $FORGE_ROOT -Parent) $project
+                $altPath = Join-Path $codebaseRoot $doc
+                if (Test-Path $altPath) {
+                    $docPath = $altPath
+                } else {
+                    $specPath = Join-Path $codebaseRoot "specs\$doc"
+                    if (Test-Path $specPath) { $docPath = $specPath }
+                }
+            }
+            if (Test-Path $docPath) {
+                $content = Get-Content $docPath -Raw
+                $governanceContext += "`n`n--- BEGIN $doc ---`n$content`n--- END $doc ---`n"
+            }
+            else {
+                Log "Governance doc not found: $docPath" "WARN"
             }
         }
-        if (Test-Path $docPath) {
-            $content = Get-Content $docPath -Raw
-            $governanceContext += "`n`n--- BEGIN $doc ---`n$content`n--- END $doc ---`n"
-        }
-        else {
-            Log "Governance doc not found: $docPath" "WARN"
+
+        # Also include CLAUDE.md from FORGE root
+        $claudeMdPath = Join-Path $FORGE_ROOT "CLAUDE.md"
+        if (Test-Path $claudeMdPath) {
+            $claudeContent = Get-Content $claudeMdPath -Raw
+            $governanceContext = "--- BEGIN CLAUDE.md ---`n$claudeContent`n--- END CLAUDE.md ---`n" + $governanceContext
         }
     }
-
-    # Also include CLAUDE.md from FORGE root
-    $claudeMdPath = Join-Path $FORGE_ROOT "CLAUDE.md"
-    if (Test-Path $claudeMdPath) {
-        $claudeContent = Get-Content $claudeMdPath -Raw
-        $governanceContext = "--- BEGIN CLAUDE.md ---`n$claudeContent`n--- END CLAUDE.md ---`n" + $governanceContext
+    else {
+        Log "[INFO] Governance docs injected on prompt 1 only - skipping for prompts 2+" "INFO"
     }
 
     $fullPrompt = "$governanceContext`n`n--- CURRENT TASK ---`n$prompt"
@@ -373,18 +484,51 @@ function Invoke-BuildAgent {
     Set-Location $workDir
 
     if ($dryRun) {
-        Log "DRY RUN - Would execute prompt ($($fullPrompt.Length) chars)" "INFO"
-        return "DRY RUN"
+        # FG-9 (2026-09-16): dry run previously skipped only the Build Agent
+        # call while the gate loop still ran for real -- including `build`,
+        # `shell`, and `deploy_verify`, the last of which performs an actual
+        # production deploy. A dry run must not mutate anything. The gate loop
+        # now reads this marker and skips every gate except file_exists.
+        Log "DRY RUN - Would execute prompt ($($fullPrompt.Length) chars). No Build Agent call, no mutating gates." "INFO"
+        return @{ text = "DRY RUN"; exitCode = 0; dryRun = $true }
     }
 
     # Execute via Claude Code CLI
-    $result = $fullPrompt | claude -p `
-        --permission-mode acceptEdits `
-        --allowedTools "*" `
-        --output-format text `
-        --verbose 2>&1
+    # FG-7 (2026-09-16): $model was accepted as a parameter and forge.ps1 read
+    # settings.build_model out of every queue, but the CLI invocation never
+    # referenced it -- so build_model was silently inert config in every queue
+    # ever run.
+    #
+    # FG-7a (2026-09-16, same day): wiring it through unconditionally was worse
+    # than leaving it inert. Every Benavora queue carries
+    # build_model: claude-sonnet-4-6-20250514, which this CLI rejects outright
+    # ("There's an issue with the selected model"), so the Build Agent died at
+    # invocation on prompt 1 and burned both retries without touching the repo.
+    # A stale model string in a queue must degrade to the CLI default, not kill
+    # the run. Now: try the configured model, and on a model-rejection fall back
+    # to the CLI default once, loudly, and carry on.
+    if ($model) {
+        $result = $fullPrompt | claude -p --model $model --dangerously-skip-permissions --output-format text --verbose 2>&1
+        $modelExit = $LASTEXITCODE
+        $resultText = ($result | Out-String)
+        if ($modelExit -ne 0 -and $resultText -match "issue with the selected model|may not exist or you may not have access") {
+            Log "build_model '$model' was REJECTED by the claude CLI. Falling back to the CLI default model for this run. Fix or remove settings.build_model in the queue - it is not a valid model for this account." "WARN"
+            $result = $fullPrompt | claude -p --dangerously-skip-permissions --output-format text --verbose 2>&1
+        }
+    }
+    else {
+        $result = $fullPrompt | claude -p --dangerously-skip-permissions --output-format text --verbose 2>&1
+    }
+    # $LASTEXITCODE reflects claude's own exit code here (last native command in
+    # the pipeline) - capture it immediately, before any other command can
+    # overwrite it. A non-zero exit means the CLI call itself failed (auth
+    # expired, usage/rate limit hit, network error, crash) before ever touching
+    # the codebase - that is a categorically different failure than "the agent
+    # ran but did a bad job", and callers need to be able to tell them apart
+    # instead of finding out three prompts later via a gate's raw stack trace.
+    $exitCode = $LASTEXITCODE
 
-    return ($result | Out-String)
+    return @{ text = ($result | Out-String); exitCode = $exitCode }
 }
 
 # ------------------------------------------------------------
@@ -447,10 +591,7 @@ INSTRUCTIONS:
 "@
 
     Set-Location $workDir
-    $result = $recoveryPrompt | claude -p `
-        --permission-mode acceptEdits `
-        --allowedTools "*" `
-        --output-format text 2>&1
+    $result = $recoveryPrompt | claude -p --dangerously-skip-permissions --output-format text 2>&1
 
     return ($result | Out-String)
 }
@@ -459,12 +600,16 @@ INSTRUCTIONS:
 # Main Pipeline
 # ------------------------------------------------------------
 function Start-ForgePipeline {
+    $pipelineStartTime = Get-Date
+    $slackWebhookUrl = $env:FORGE_SLACK_WEBHOOK
+
     Write-ProjectBanner -projectName $project
     Log "========================================" "INFO"
     Log "  FORGE Pipeline Starting" "INFO"
     Log "  Project: $project" "INFO"
     Log "  Time: $TIMESTAMP" "INFO"
     Log "========================================" "INFO"
+    Log "[INFO] Prompt caching not applicable - Build Agent calls go through the claude CLI, not a raw Messages API JSON payload, so cache_control cannot be set from forge.ps1" "INFO"
 
     # Validate project exists
     if (-not (Test-Path $QUEUE_FILE)) {
@@ -509,6 +654,13 @@ function Start-ForgePipeline {
     Log "PREFLIGHT: Project=$project TotalPrompts=$totalPrompts" "INFO"
     Log "PREFLIGHT: Prompt IDs in order: $($promptIdList -join ', ')" "INFO"
 
+    # ------------------------------------------------------------
+    # Live Dashboard
+    # ------------------------------------------------------------
+    $dashboardScript = Join-Path $FORGE_ROOT "forge-dashboard.ps1"
+    $dashboardJob = Start-Job -FilePath $dashboardScript -ArgumentList @($project, $LOG_FILE, $totalPrompts)
+    Log "[INFO] Dashboard running at http://localhost:7734 - open in browser" "INFO"
+
     # Determine work directory (where the actual app is built).
     # Built as a sibling of the FORGE root, e.g. C:\Users\<you>\Documents\<project>.
     $workDir = Join-Path (Split-Path $FORGE_ROOT -Parent) $queue.project
@@ -523,7 +675,10 @@ function Start-ForgePipeline {
         failed = 0
         halted = $false
         haltReason = ""
+        failedIds = @()
     }
+
+    Send-ForgeStart -webhookUrl $slackWebhookUrl -project $project -totalPrompts $totalPrompts
 
     # Execute each prompt
     for ($i = $startFrom; $i -lt $totalPrompts; $i++) {
@@ -536,6 +691,7 @@ function Start-ForgePipeline {
         # Sanitize the prompt text once up front so both the Build Agent and
         # any Recovery Agent invocation see the same deploy-stripped text.
         $sanitizedPromptText = Remove-DeployCommands -promptText $prompt.prompt
+        $promptStartTime = Get-Date
 
         Log "" "INFO"
         Write-ProjectBanner -projectName $project
@@ -569,18 +725,62 @@ function Start-ForgePipeline {
                 -prompt $sanitizedPromptText `
                 -workDir $workDir `
                 -governanceDocs $governance `
-                -model $(if ($settings.build_model) { $settings.build_model } else { "claude-sonnet-4-6-20250514" })
+                -model $(if ($settings.build_model) { $settings.build_model } else { "claude-sonnet-5" }) `
+                -promptIndex $i
+
+            # Always log what the Build Agent actually said, truncated to keep the
+            # log file sane. Previously this was captured into $buildResult and
+            # then discarded - a CLI-level failure (auth, usage/rate limit,
+            # network) produced zero record of itself, so the only visible
+            # symptom was a downstream gate failing on a file that was never
+            # written, hours later, with nothing to explain why.
+            $buildOutputPreview = if ($buildResult.text.Length -gt 4000) { $buildResult.text.Substring(0, 4000) + "...[truncated, $($buildResult.text.Length) chars total]" } else { $buildResult.text }
+            Log "Build Agent finished (exit=$($buildResult.exitCode), $($buildResult.text.Length) chars):" "INFO"
+            Log $buildOutputPreview "INFO"
 
             # Run Quality Gates
             $allGatesPassed = $true
             $failedGateOutput = ""
+            $dryRunSkippedAGate = $false
 
-            if ($prompt.gates) {
+            if (-not $dryRun -and $buildResult.exitCode -ne 0) {
+                # The CLI call itself failed - no gate ran, none should. Running
+                # gates here would just report "file not found" for whatever the
+                # prompt asked the agent to create, masking the real error.
+                $allGatesPassed = $false
+                $failedGateOutput = "BUILD AGENT INVOCATION FAILED (claude exited $($buildResult.exitCode)) before any work could happen - likely auth expiry, a usage/rate limit, or a network error, not a defect in the prompt or codebase. Build Agent output:`n$($buildResult.text)"
+                Log "Build Agent invocation failed (exit $($buildResult.exitCode)) - skipping gates for this attempt." "FAIL"
+            }
+            elseif ($prompt.gates) {
                 foreach ($gate in $prompt.gates) {
                     $gateType = $gate.type
+
+                    # FG-9 (2026-09-16): during a dry run, execute only
+                    # read-only gates. build/test/lint/compile/deploy_verify and
+                    # arbitrary shell commands all mutate (node_modules, .next,
+                    # the database, or a live Vercel deploy) and must never fire
+                    # from a dry run. Skipped gates are reported as SKIPPED and
+                    # the prompt is NOT recorded as a real pass.
+                    if ($dryRun -and $gateType -ne "file_exists") {
+                        # Still VALIDATE the gate type even though we will not
+                        # execute it - otherwise a dry run would report green
+                        # for a queue containing a gate type FORGE cannot run,
+                        # which is the exact false-pass this fix exists to kill.
+                        $validGateTypes = @("compile", "build", "lint", "test", "deploy_verify", "file_exists", "shell", "command")
+                        if ($gateType -notin $validGateTypes) {
+                            $allGatesPassed = $false
+                            $failedGateOutput = "UNKNOWN GATE TYPE '$gateType' found during dry-run validation. Valid types: $($validGateTypes -join ', ')."
+                            Log "DRY RUN - invalid gate type '$gateType' - FAILING validation." "FAIL"
+                            break
+                        }
+                        Log "DRY RUN - gate '$gateType' validated but NOT executed. This run proves nothing about the code." "INFO"
+                        $dryRunSkippedAGate = $true
+                        continue
+                    }
                     $gateConfig = @{}
                     if ($gate.files) { $gateConfig.files = $gate.files }
                     if ($gate.command) { $gateConfig.command = $gate.command }
+                    if ($gate.run) { $gateConfig.command = $gate.run }
 
                     $gateResult = Run-Gate -gateType $gateType -workDir $workDir -gateConfig $gateConfig
 
@@ -591,12 +791,27 @@ function Start-ForgePipeline {
                     }
                 }
             }
+            else {
+                # FG-3 (2026-09-16): a prompt with no `gates:` key previously
+                # left $allGatesPassed = $true and PASSED unconditionally, so a
+                # forgotten gates block read as green. An ungated prompt proves
+                # nothing and must never pass.
+                $allGatesPassed = $false
+                $failedGateOutput = "NO GATES DEFINED for prompt '$promptId'. A prompt without a gates: block proves nothing, so FORGE fails it rather than reporting a pass it cannot substantiate. Add at least one gate (compile/build/lint/test/file_exists/shell)."
+                Log "Prompt $promptId has no gates defined - failing rather than false-passing." "FAIL"
+            }
+
+            if ($allGatesPassed -and $dryRunSkippedAGate) {
+                Log "PROMPT $promptId : DRY-RUN VALIDATED ONLY - gates were not executed, this is NOT a pass." "WARN"
+            }
 
             if ($allGatesPassed) {
                 $promptPassed = $true
                 $results.passed++
                 Write-Transition -state "PASSED"
                 Log "PROMPT $promptId : ALL GATES PASSED" "PASS"
+                $promptDuration = "{0:N1}s" -f ((Get-Date) - $promptStartTime).TotalSeconds
+                Send-ForgePromptPass -webhookUrl $slackWebhookUrl -project $project -promptId $promptId -promptName $description -duration $promptDuration
             }
             else {
                 $retryCount++
@@ -615,8 +830,10 @@ function Start-ForgePipeline {
 
         if (-not $promptPassed) {
             $results.failed++
+            $results.failedIds += $promptId
             Write-Transition -state "FAILED" -reason "exhausted $maxRetries retries"
             Log "PROMPT $promptId : FAILED after $maxRetries retries" "ERROR"
+            Send-ForgePromptFail -webhookUrl $slackWebhookUrl -project $project -promptId $promptId -promptName $description -retries $retryCount
 
             if ($prompt.on_fail -eq "halt") {
                 $results.halted = $true
@@ -657,6 +874,9 @@ $failedGateOutput
     Log "  Halted: $($results.halted)" $(if ($results.halted) { "ERROR" } else { "INFO" })
     Log "========================================" "INFO"
 
+    $pipelineDuration = "{0:N1}m" -f ((Get-Date) - $pipelineStartTime).TotalMinutes
+    Send-ForgeComplete -webhookUrl $slackWebhookUrl -project $project -passed $results.passed -failed $results.failed -duration $pipelineDuration -failedPromptIds $results.failedIds
+
     # Generate report
     $reportPath = "$REPORT_DIR\$project`_$TIMESTAMP.md"
     $report = @"
@@ -677,6 +897,10 @@ See: $LOG_FILE
     Set-Content -Path $reportPath -Value $report -Encoding UTF8
     Log "Report saved: $reportPath" "INFO"
 
+    Stop-Job $dashboardJob -ErrorAction SilentlyContinue
+    Remove-Job $dashboardJob -ErrorAction SilentlyContinue
+    try { Invoke-WebRequest http://localhost:7734/stop -TimeoutSec 2 -ErrorAction SilentlyContinue } catch {}
+
     return $results
 }
 
@@ -690,5 +914,6 @@ if ($MyInvocation.InvocationName -ne '.') {
     $result = Start-ForgePipeline
     if ($result.halted -or $result.failed -gt 0) { exit 1 } else { exit 0 }
 }
+
 
 

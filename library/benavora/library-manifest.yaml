@@ -145,14 +145,14 @@ queues:
 
   - id: ar-18-build-system-hardening
     file: queue-ar-18-build-system-hardening.yaml
-    description: "Phase 18 - runs SECOND: a gate that proves work landed, and deploy verification that covers Vercel and Railway"
+    description: "Phase 18 - runs SECOND: a gate that proves work landed, deploy verification across Vercel and Railway, and a CI-integrity gate so a dead pipeline cannot go unnoticed again"
     status: pending
     depends_on:
       - ar-13-full-platform-diagnostic
-    prompt_count: 2
-    estimated_hours: 1.2
+    prompt_count: 3
+    estimated_hours: 1.8
     priority: 14
-    note: "Deliberately early. On 2026-09-18 ar-10-3 passed all four gates with migration 198 live in production and its code uncommitted. Phases 14-17 must not run without that protection."
+    note: "Deliberately early. On 2026-09-18 ar-10-3 passed all four gates with migration 198 live in production and its code uncommitted. Expanded 2 -> 3 on 2026-09-19 after CI was found to have failed 100% of runs for nine weeks (node-version 18 vs undici@7 needing the global File) with four sessions claiming a fix and no gate able to see it. Phases 14-23 must not run without both protections."
 
   - id: ar-14-pipelines-and-schedulers
     file: queue-ar-14-pipelines-and-schedulers.yaml

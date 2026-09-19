@@ -149,3 +149,124 @@ prompts:
     run: node scripts/audit/forge-gates/work-landed.mjs
   max_retries: 2
   on_fail: halt
+
+- id: ar-18-3-ci-integrity
+  name: Phase 18.3 Nobody noticed CI was dead for nine weeks
+  description: Three workflows, 100% failure since 2026-07-17, and not one gate in this platform could see it
+  phase: "18"
+  prompt: |
+    BENAVORA - PHASE 18.3 - CI INTEGRITY
+
+    PROJECT ROOT: C:\Users\manag\Documents\benavora
+
+    WHAT HAPPENED, ESTABLISHED 2026-09-19. Every GitHub Actions run on this
+    repository failed from 2026-07-17 to 2026-09-19. Nine weeks. The cause was
+    one line, `node-version: 18`, in all three workflow files: undici@7.28.0
+    dereferences the global `File` at module load and Node 18 has no `File`.
+
+    FOUR SEPARATE SESSIONS "FIXED" CI IN THAT WINDOW - the OOM heap limit, the
+    anon keys, the worktree gitlinks, the service-role placeholder. Every one
+    was a real defect. Every one was verified on a Windows machine running Node
+    24. No CI step was ever executed under Node 18, and package.json declared
+    `engines.node: ">=18.18.0"`, so nothing contradicted the assumption.
+
+    Worse: BUILD_FAILURE_ROOT_CAUSE_AUDIT.md recorded "100 runs sampled, 100
+    failure, 0 success" and "Daily Test Suite fails 100% of sampled runs" on
+    2026-07-29. That file sat in this repository for seven weeks and nobody
+    opened daily-tests.yml again.
+
+    THE DEFECT THIS PROMPT FIXES IS NOT THE NODE VERSION - that is already
+    fixed in b9be4a46. It is that this platform has 55 remediation prompts and
+    not one of them can tell whether CI is alive.
+
+    BUILD scripts/audit/forge-gates/ci-integrity.mjs.
+
+    INTERFACE - build to exactly this:
+      node scripts/audit/forge-gates/ci-integrity.mjs
+    Exit 0 on pass, non-zero on fail, run from the project root. INDETERMINATE
+    exits non-zero; never pass when you could not measure.
+
+    IT MUST ASSERT, for every file in .github/workflows/:
+      1. NODE VERSION AGREEMENT. Every `node-version:` matches .nvmrc and
+         satisfies package.json `engines.node`. A workflow pinned below the
+         engines floor is the exact defect that cost nine weeks. Fail on any
+         disagreement and name all three values.
+      2. EVERY REFERENCED SECRET IS ACCOUNTED FOR. Parse every
+         `${{ secrets.X }}`. For each, require either a matching entry in a
+         version-controlled manifest of expected repo secrets, or that the
+         workflow referencing it has no schedule and no push trigger. A
+         scheduled workflow depending on a secret nobody has confirmed exists
+         is backup-database.yml, which fired at 02:00 UTC every day for 17 days
+         and failed every time.
+      3. NO SCHEDULED WORKFLOW IS UNACCOUNTED FOR. Enumerate every `schedule:`
+         cron and compute how many runs per week each generates. Print the
+         total. A scheduled workflow is a standing commitment to a recurring
+         email; it must be a deliberate choice, recorded.
+      4. EVERY WORKFLOW HAS AN OWNER AND A PURPOSE recorded in
+         test-evidence/CI_WORKFLOW_REGISTRY.md - what it does, what it needs,
+         what a failure means, and who acts on it. backup-database.yml was
+         committed inside a ~100-file governance-docs dump on 2026-09-02 and
+         nobody knew it existed.
+
+    SELF-TEST BOTH DIRECTIONS, non-negotiable. Fixtures proving: matching
+    versions pass; a workflow pinned below the engines floor fails and names
+    all three values; an unlisted secret in a scheduled workflow fails; an
+    unregistered workflow fails; an unparseable workflow reports INDETERMINATE
+    and exits non-zero. Report pass and catch counts.
+
+    THEN PROVE CI IS ACTUALLY GREEN, which no gate can do from the repository
+    alone. Read the most recent conclusion for each workflow however you can
+    reach it - the GitHub API with a token if one is configured, otherwise say
+    plainly that you could not and record it as UNVERIFIED. DO NOT INFER A
+    GREEN RUN FROM THE ABSENCE OF EVIDENCE. Nine weeks of failure were
+    invisible for exactly that reason.
+
+    ALSO PORT THE SECRET SCAN. On 2026-09-19 GitHub push protection rejected a
+    FORGE commit carrying a live Supabase personal access token
+    (`Authorization: Bearer sbp_...`) that had sat in a queue file for months.
+    FORGE now has .githooks/pre-commit scanning 19 credential patterns. This
+    repository has no equivalent. Port it, extend it with any pattern this
+    codebase needs, wire it with core.hooksPath, and SELF-TEST IT against a
+    planted token of each class. A scan written from memory only catches the
+    prefixes someone happened to remember - that is precisely why the sbp_
+    prefix was missed.
+
+    THEN SCAN THIS REPOSITORY'S FULL HISTORY for the same classes and report
+    what you find, redacted. Report only - do not rewrite history in this
+    prompt, and NEVER print a secret value into a log, report or commit
+    message. If anything is found, name the file and commit and state that the
+    credential must be rotated; a credential in git history is compromised
+    regardless of whether the repository is private.
+
+    INCREMENTAL TESTING CHECKPOINT
+    Run the gate against the live repo and paste its verdict verbatim.
+
+    GOVERNANCE UPDATE
+    Update the live root STATE_OF_THE_BUILD.md, SESSION_STATE.md and
+    STANDING_DIRECTIVES.md. Record the directive plainly: a CI change is
+    unproven until a run has been observed green on the version CI actually
+    uses, and "verified locally" on a different Node version is not evidence.
+
+    END-OF-RUN VERIFICATION
+    pnpm typecheck, pnpm run build, pnpm test. Real numbers. Then state the
+    gate's self-test counts, the total scheduled runs per week across all
+    workflows, the per-workflow CI status or UNVERIFIED, the secret-scan
+    self-test result, and anything the history scan found.
+
+    COMMIT (scoped - never `git add -A`)
+    git add scripts/audit .githooks .github test-evidence STANDING_DIRECTIVES.md STATE_OF_THE_BUILD.md SESSION_STATE.md
+    git commit -m "[FORGE] AR-18.3: CI integrity gate - node/engines agreement, secret accounting, scheduled-run budget, plus a self-tested credential scan"
+    git push origin main
+  gates:
+  - type: compile
+  - type: test
+  - type: file_exists
+    files:
+    - scripts/audit/forge-gates/ci-integrity.mjs
+    - test-evidence/CI_WORKFLOW_REGISTRY.md
+  - type: shell
+    run: node scripts/audit/forge-gates/ci-integrity.mjs
+  - type: shell
+    run: node scripts/audit/forge-gates/work-landed.mjs
+  max_retries: 2
+  on_fail: halt
